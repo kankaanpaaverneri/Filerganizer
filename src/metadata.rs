@@ -1,0 +1,80 @@
+use chrono::{DateTime, Local};
+use std::{ffi::OsString, time::SystemTime};
+
+#[derive(Debug, Clone)]
+pub struct Metadata {
+    name: Option<OsString>,
+    created: Option<DateTime<Local>>,
+    accessed: Option<DateTime<Local>>,
+    modified: Option<DateTime<Local>>,
+    size: Option<f64>,
+    readonly: bool,
+}
+
+impl Metadata {
+    pub fn new() -> Self {
+        Self {
+            name: None,
+            created: None,
+            accessed: None,
+            modified: None,
+            size: None,
+            readonly: false,
+        }
+    }
+
+    pub fn get_created(&self) -> Option<DateTime<Local>> {
+        self.created
+    }
+
+    pub fn get_accessed(&self) -> Option<DateTime<Local>> {
+        self.accessed
+    }
+
+    pub fn get_modified(&self) -> Option<DateTime<Local>> {
+        self.modified
+    }
+
+    pub fn get_size(&self) -> Option<f64> {
+        self.size
+    }
+
+    pub fn get_readonly(&self) -> bool {
+        self.readonly
+    }
+
+    pub fn build(
+        name: Option<OsString>,
+        created: Option<SystemTime>,
+        accessed: Option<SystemTime>,
+        modified: Option<SystemTime>,
+        size: Option<f64>,
+        readonly: bool,
+    ) -> Self {
+        Self::convert_metadata_to_datetime(name, created, accessed, modified, size, readonly)
+    }
+
+    fn convert_metadata_to_datetime(
+        name: Option<OsString>,
+        created: Option<SystemTime>,
+        accessed: Option<SystemTime>,
+        modified: Option<SystemTime>,
+        size: Option<f64>,
+        readonly: bool,
+    ) -> Self {
+        let mut metadata = Self::new();
+        metadata.name = name;
+        if let Some(c) = created {
+            metadata.created = Some(c.into());
+        }
+        if let Some(a) = accessed {
+            metadata.accessed = Some(a.into());
+        }
+        if let Some(m) = modified {
+            metadata.modified = Some(m.into());
+        }
+        metadata.size = size;
+        metadata.readonly = readonly;
+        metadata
+    }
+}
