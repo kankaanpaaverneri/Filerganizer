@@ -1,5 +1,7 @@
 use iced::widget::Container;
+use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs::read_dir;
 use std::path::PathBuf;
 
 use crate::directory::Directory;
@@ -10,10 +12,10 @@ pub struct App {
     path_input: String,
     error: String,
     root: Directory,
+    external_storage: HashMap<OsString, Directory>,
     layout: Layout,
 }
 
-const DEFAULT_PATH: &str = "/";
 
 impl Default for App {
     fn default() -> Self {
@@ -22,6 +24,7 @@ impl Default for App {
             path_input: String::new(),
             error: String::new(),
             root: Directory::new(None),
+            external_storage: HashMap::new(),
             layout: Layout::Main,
         }
     }
@@ -87,14 +90,16 @@ impl App {
         self.layout = layout;
         match self.layout {
             Layout::DirectoryExploringLayout => {
-                let mut new_directory = Directory::new(None);
-                let path = PathBuf::from("/");
-                if let Err(error) = self.root.read_path(&path, &mut new_directory) {
-                    self.error = error.to_string();
+                if let Some(first) = self.get_drive_paths().first() {
+                    let mut new_directory = Directory::new(None);
+                    let path = PathBuf::from(first);
+                    if let Err(error) = self.root.read_path(&path, &mut new_directory) {
+                        self.error = error.to_string();
+                    }
+                    self.root = new_directory;
+                    self.path = path;
+                    self.write_directories_from_path();
                 }
-                self.root = new_directory;
-                self.path = path;
-                self.write_directories_from_path();
             }
             Layout::Main => {
                 self.root.clear_directory_content();
@@ -120,13 +125,37 @@ impl App {
     }
 
     fn write_directories_from_path(&mut self) {
-        let mut path_stack = PathBuf::from("/");
-        for (i, path_directory) in PathBuf::from(DEFAULT_PATH).iter().enumerate() {
-            if i == 0 {
-                continue;
+        if let Some(first) = self.get_drive_paths().first(){
+            let mut path_stack = PathBuf::from(&first);
+            for (i, path_directory) in PathBuf::from(first).iter().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+                path_stack.push(path_directory);
+                self.write_directory_to_tree(&mut PathBuf::from(&path_stack));
             }
-            path_stack.push(path_directory);
-            self.write_directory_to_tree(&mut PathBuf::from(&path_stack));
+            
         }
+    }
+
+    fn get_drive_paths(&self) -> Vec<String> {
+        match std::env::consts::OS {
+            "windows" => {
+                self.get_drives()
+            },
+            _ => Vec::with_capacity(0)
+        }
+    }
+
+    fn get_drives(&self) -> Vec<String> {
+        let mut external_storages = Vec::new();
+        for letter in 'A'..'Z' {
+            let formatted_drive_letter = format!("{}:/", letter);
+            if let Ok(_) = read_dir(&formatted_drive_letter) {
+                
+                external_storages.push(formatted_drive_letter);
+            }
+        }
+        external_storages
     }
 }

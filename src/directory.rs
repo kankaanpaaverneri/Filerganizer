@@ -3,8 +3,7 @@ use crate::metadata::Metadata;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, ReadDir};
-use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{PathBuf, StripPrefixError, Path};
 
 #[derive(Debug, Clone)]
 pub struct Directory {
@@ -53,18 +52,17 @@ impl Directory {
 
     pub fn get_mut_directory_by_path(&mut self, path: &PathBuf) -> Option<&mut Directory> {
         let mut current_directory = self;
-        for path_directory in path {
-            if path_directory == OsString::from("/") {
-                continue;
-            }
-            if let Some(sub_directories) = &mut current_directory.directories {
-                if let Some(sub_directory) = sub_directories.get_mut(path_directory) {
-                    current_directory = sub_directory;
+        if let Ok(path) = remove_prefix_from_path(path) {
+            for path_directory in path {
+                if let Some(sub_directories) = &mut current_directory.directories {
+                    if let Some(sub_directory) = sub_directories.get_mut(path_directory) {
+                        current_directory = sub_directory;
+                    } else {
+                        return None;
+                    }
                 } else {
                     return None;
                 }
-            } else {
-                return None;
             }
         }
         Some(current_directory)
@@ -191,7 +189,7 @@ fn write_file_entry(entry: &DirEntry) -> Option<File> {
             let created = metadata.created().ok().take();
             let accessed = metadata.accessed().ok().take();
             let modified = metadata.modified().ok().take();
-            let size = metadata.size() as f64;
+            let size = metadata.len() as f64;
             let readonly = metadata.permissions().readonly();
             if metadata.is_file() {
                 return Some(File::new(Metadata::build(
@@ -207,4 +205,29 @@ fn write_file_entry(entry: &DirEntry) -> Option<File> {
         }
         _ => None,
     }
+}
+
+fn remove_prefix_from_path(path: &PathBuf) -> Result<&Path, StripPrefixError> {
+    match std::env::consts::OS {
+        "windows" => {
+            let prefix = get_prefix_from_path(path);
+            return path.strip_prefix(prefix);
+        }
+        _ => path.strip_prefix("/")
+    }
+}
+
+fn get_prefix_from_path(path: &PathBuf) -> String {
+    let mut prefix = String::new();
+    let mut i = 0;
+    for path_directory in path {
+        if i == 2 {
+            break;
+        }
+        if let Some(p) = path_directory.to_str() {
+            prefix.push_str(p);
+        }
+        i += 1;
+    }
+    prefix
 }
