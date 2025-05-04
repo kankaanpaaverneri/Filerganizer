@@ -33,6 +33,7 @@ impl Default for App {
 pub enum Message {
     SwitchLayout(Layout),
     TextInput(String),
+    SearchPath,
     MoveDownDirectory(OsString),
     MoveUpDirectory,
     MoveInExternalDirectory(OsString),
@@ -52,6 +53,11 @@ impl App {
             }
             Message::TextInput(text_input) => {
                 self.path_input = text_input;
+            }
+            Message::SearchPath => {
+                self.write_directories_from_path(&PathBuf::from(&self.path_input));
+                self.path = PathBuf::from(&self.path_input);
+                self.path_input.clear();
             }
             Message::MoveDownDirectory(directory_name) => {
                 let mut path = self.path.as_path().to_path_buf();
@@ -93,7 +99,6 @@ impl App {
     pub fn get_path(&self) -> &PathBuf {
         &self.path
     }
-
     pub fn get_path_input(&self) -> &str {
         self.path_input.as_str()
     }
@@ -119,15 +124,16 @@ impl App {
                         self.insert_root_directory(&path);
                     }
                 }
-                _ => {
+                "macos" => {
                     let mut path = PathBuf::from("/");
                     self.insert_root_directory(&path);
                     self.write_directory_to_tree(&path);
                     path.push("Volumes");
                     self.write_directory_to_tree(&path);
                     self.get_volumes_on_macos();
-                    println!("external: {:?}", self.external_storage);
+                    self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"));
                 }
+                _ => {}
             },
             Layout::Main => {
                 self.root.clear_directory_content();
@@ -181,6 +187,18 @@ impl App {
                 }
             }
         }
+    }
+
+    fn write_directories_from_path(&mut self, path: &PathBuf) {
+        let mut path_stack = PathBuf::from("/");
+        for component in path.iter() {
+            if component == OsString::from("/") {
+                continue;
+            }
+            path_stack.push(OsString::from(component));
+            self.write_directory_to_tree(&path_stack);
+        }
+        self.path = path.clone();
     }
 
     fn update_path_prefix(&mut self, key: &OsStr) {

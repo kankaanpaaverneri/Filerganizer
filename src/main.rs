@@ -9,7 +9,9 @@ use iced;
 use iced::Theme;
 
 fn main() -> iced::Result {
-    iced::application("Filerganizer", App::update, App::view).theme(theme).run()
+    iced::application("Filerganizer", App::update, App::view)
+        .theme(theme)
+        .run()
 }
 
 fn theme(_: &App) -> Theme {

@@ -210,19 +210,22 @@ fn write_file_entry(entry: &DirEntry) -> Option<File> {
 
 fn remove_prefix_from_path(path: &PathBuf) -> Result<&Path, std::path::StripPrefixError> {
     match std::env::consts::OS {
-        "windows" => {
-            path.strip_prefix(identify_prefix(path))
-        }
-        _ => path.strip_prefix(OsString::from("/"))
+        "windows" => path.strip_prefix(identify_prefix(path)),
+        "macos" => path.strip_prefix(OsString::from("/")),
+        _ => path.strip_prefix(OsString::from("/")),
     }
 }
 
 fn identify_prefix(path: &PathBuf) -> String {
-    let first_two_components: Vec<_> = path.iter().take(2).filter_map(|component| {
-        if let Some(element) = component.to_str() {
-            return Some(element);
-        }
-        None
-    }).collect();
+    let first_two_components: Vec<_> = path
+        .iter()
+        .take(2)
+        .filter_map(|component| {
+            if let Some(element) = component.to_str() {
+                return Some(element);
+            }
+            None
+        })
+        .collect();
     first_two_components.join("/")
 }

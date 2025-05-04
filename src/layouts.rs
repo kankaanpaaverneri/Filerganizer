@@ -53,8 +53,12 @@ impl Layout {
                             .on_press(Message::SwitchLayout(Layout::Main))
                             .style(button_style),
                         row![
-                            text_input(path, app.get_path_input()).on_input(Message::TextInput),
-                            button("Search").style(button_style)
+                            text_input(path, app.get_path_input())
+                                .on_input(Message::TextInput)
+                                .on_submit(Message::SearchPath),
+                            button("Search")
+                                .style(button_style)
+                                .on_press(Message::SearchPath)
                         ],
                         self.insert_external_storage(app),
                         button("Previous")
