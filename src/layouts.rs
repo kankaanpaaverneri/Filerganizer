@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ffi::OsString};
+use std::{collections::BTreeSet, ffi::OsString};
 
 use iced::{
     widget::{
@@ -63,7 +63,6 @@ impl Layout {
                         text(app.get_error()),
                     ]
                     .spacing(5),
-                    
                     self.insert_header(),
                     scrollable(
                         column![self.display_directory_contents(app).spacing(5)].spacing(10)
@@ -88,10 +87,14 @@ impl Layout {
 
     fn insert_external_storage<'a>(&self, app: &'a App) -> Row<'a, Message> {
         let mut row = Row::new();
-        let external_directories: &BTreeMap<OsString, Directory> = app.get_external_directories();
-        for key in external_directories.keys() {
+        let external_directories: &BTreeSet<OsString> = app.get_external_directories();
+        for key in external_directories.iter() {
             if let Some(k) = key.to_str() {
-                row = row.push(button(k).style(button_style).on_press(Message::MoveInExternalDirectory(OsString::from(key))));
+                row = row.push(
+                    button(k)
+                        .style(button_style)
+                        .on_press(Message::MoveInExternalDirectory(OsString::from(key))),
+                );
             }
         }
         row

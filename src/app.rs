@@ -1,5 +1,5 @@
 use iced::widget::Container;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::path::PathBuf;
@@ -12,10 +12,9 @@ pub struct App {
     path_input: String,
     error: String,
     root: Directory,
-    external_storage: BTreeMap<OsString, Directory>,
+    external_storage: BTreeSet<OsString>,
     layout: Layout,
 }
-
 
 impl Default for App {
     fn default() -> Self {
@@ -24,7 +23,7 @@ impl Default for App {
             path_input: String::new(),
             error: String::new(),
             root: Directory::new(None),
-            external_storage: BTreeMap::new(),
+            external_storage: BTreeSet::new(),
             layout: Layout::Main,
         }
     }
@@ -68,15 +67,20 @@ impl App {
                     }
                 }
             }
-            Message::MoveInExternalDirectory(external) => {
-                match std::env::consts::OS {
-                    "windows" => {
-                        self.update_path_prefix(&external);
-                        self.write_directory_to_tree(&PathBuf::from(&external));
-                    },
-                    _ => {}
+            Message::MoveInExternalDirectory(external) => match std::env::consts::OS {
+                "windows" => {
+                    self.update_path_prefix(&external);
+                    self.write_directory_to_tree(&PathBuf::from(&external));
                 }
-            }
+                "macos" => {
+                    self.path.clear();
+                    self.path.push("/Volumes");
+                    self.write_directory_to_tree(&PathBuf::from(&self.path));
+                    self.path.push(&external);
+                    self.write_directory_to_tree(&PathBuf::from(&self.path));
+                }
+                _ => {}
+            },
             Message::Exit => std::process::exit(0),
         }
     }
@@ -97,30 +101,31 @@ impl App {
         self.error.as_str()
     }
 
-    pub fn get_external_directories(&self) -> &BTreeMap<OsString, Directory> {
+    pub fn get_external_directories(&self) -> &BTreeSet<OsString> {
         &self.external_storage
     }
 
     fn switch_layout(&mut self, layout: Layout) {
         self.layout = layout;
         match self.layout {
-            Layout::DirectoryExploringLayout => {
-                let drive_paths = self.get_drive_paths();
-                if let Some(first) = drive_paths.first() {
-                    let mut new_directory = Directory::new(None);
-                    let path = PathBuf::from(first);
-                    if let Err(error) = self.root.read_path(&path, &mut new_directory) {
-                        self.error = error.to_string();
+            Layout::DirectoryExploringLayout => match std::env::consts::OS {
+                "windows" => {
+                    if let Some(first) = self.get_drives_on_windows().first() {
+                        let path = PathBuf::from(first);
+                        for path in self.get_drives_on_windows() {
+                            self.external_storage.insert(path);
+                        }
+                        self.insert_root_directory(&path);
                     }
-                    self.root = new_directory;
-                    self.path = path;
-                    self.write_directories_from_path();
-                    for path in drive_paths {
-                        self.external_storage.insert(OsString::from(path), Directory::new(None));
-                    }
-                    
                 }
-            }
+                _ => {
+                    let mut path = PathBuf::from("/");
+                    self.insert_root_directory(&path);
+                    path.push("Volumes");
+                    self.write_directory_to_tree(&path);
+                    self.get_volumes_on_macos();
+                }
+            },
             Layout::Main => {
                 self.root.clear_directory_content();
                 self.root = Directory::new(None);
@@ -128,6 +133,15 @@ impl App {
                 self.external_storage.clear();
             }
         }
+    }
+
+    fn insert_root_directory(&mut self, path: &PathBuf) {
+        let mut new_directory = Directory::new(None);
+        if let Err(error) = self.root.read_path(&path, &mut new_directory) {
+            self.error = error.to_string();
+        }
+        self.root = new_directory;
+        self.path = PathBuf::from(path);
     }
 
     fn write_directory_to_tree(&mut self, path: &PathBuf) {
@@ -143,42 +157,31 @@ impl App {
         }
     }
 
-    fn write_directories_from_path(&mut self) {
-        if let Some(first) = self.get_drive_paths().first(){
-            let mut path_stack = PathBuf::from(&first);
-            for (i, path_directory) in PathBuf::from(first).iter().enumerate() {
-                if i == 0 {
-                    continue;
-                }
-                path_stack.push(path_directory);
-                self.write_directory_to_tree(&mut PathBuf::from(&path_stack));
-            }
-            
-        }
-    }
-
-    fn get_drive_paths(&self) -> Vec<String> {
-        match std::env::consts::OS {
-            "windows" => {
-                self.get_drives_on_windows()
-            },
-            _ => Vec::with_capacity(0)
-        }
-    }
-
-    fn get_drives_on_windows(&self) -> Vec<String> {
+    fn get_drives_on_windows(&self) -> Vec<OsString> {
         let mut external_storages = Vec::new();
         for letter in 'A'..'Z' {
             let formatted_drive_letter = format!("{}:/", letter);
             if let Ok(_) = read_dir(&formatted_drive_letter) {
-                external_storages.push(formatted_drive_letter);
+                external_storages.push(OsString::from(formatted_drive_letter));
             }
         }
         external_storages
     }
 
+    fn get_volumes_on_macos(&mut self) {
+        if let Some(directories) = self.root.get_directories() {
+            if let Some(volumes_dir) = directories.get(&OsString::from("Volumes")) {
+                if let Some(volumes) = volumes_dir.get_directories() {
+                    for key in volumes.keys() {
+                        self.external_storage.insert(OsString::from(&key));
+                    }
+                }
+            }
+        }
+    }
+
     fn update_path_prefix(&mut self, key: &OsStr) {
-        for keys in self.external_storage.keys() {
+        for keys in self.external_storage.iter() {
             if keys == key {
                 self.path = PathBuf::from(key);
             }
