@@ -55,11 +55,10 @@ impl App {
             }
             Message::MoveDownDirectory(directory_name) => {
                 let mut path = self.path.as_path().to_path_buf();
-                
+
                 path.push(directory_name.as_os_str());
                 self.write_directory_to_tree(&path);
                 self.path = path;
-                
             }
             Message::MoveUpDirectory => {
                 let path_before_pop = self.path.as_path().to_path_buf();
@@ -112,21 +111,22 @@ impl App {
         match self.layout {
             Layout::DirectoryExploringLayout => match std::env::consts::OS {
                 "windows" => {
-                    
                     if let Some(first) = self.get_drives_on_windows().first() {
                         let path = PathBuf::from(first);
                         for path in self.get_drives_on_windows() {
                             self.external_storage.insert(path);
                         }
                         self.insert_root_directory(&path);
-                        
                     }
                 }
                 _ => {
-                    let path = PathBuf::from("/");
+                    let mut path = PathBuf::from("/");
                     self.insert_root_directory(&path);
                     self.write_directory_to_tree(&path);
+                    path.push("Volumes");
+                    self.write_directory_to_tree(&path);
                     self.get_volumes_on_macos();
+                    println!("external: {:?}", self.external_storage);
                 }
             },
             Layout::Main => {
