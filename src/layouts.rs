@@ -53,13 +53,20 @@ impl Layout {
                             .on_press(Message::SwitchLayout(Layout::Main))
                             .style(button_style),
                         row![
-                            text_input(path, app.get_path_input())
-                                .on_input(Message::TextInput)
-                                .on_submit(Message::SearchPath),
-                            button("Search")
-                                .style(button_style)
-                                .on_press(Message::SearchPath)
-                        ],
+                            row![
+                                text_input(path, app.get_path_input())
+                                    .on_input(Message::TextInput)
+                                    .on_submit(Message::SearchPath),
+                                button("Search")
+                                    .style(button_style)
+                                    .on_press(Message::SearchPath)
+                            ],
+                            row![
+                                button("List view").style(button_style),
+                                button("Drop down").style(button_style)
+                            ],
+                        ]
+                        .spacing(10),
                         self.insert_external_storage(app),
                         button("Previous")
                             .on_press(Message::MoveUpDirectory)

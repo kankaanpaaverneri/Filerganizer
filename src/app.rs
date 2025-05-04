@@ -2,6 +2,7 @@ use iced::widget::Container;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use crate::directory::Directory;
@@ -55,7 +56,16 @@ impl App {
                 self.path_input = text_input;
             }
             Message::SearchPath => {
-                self.write_directories_from_path(&PathBuf::from(&self.path_input));
+                if self.path_input.is_empty() {
+                    self.path_input = String::from("/");
+                }
+                if let Err(error) =
+                    self.write_directories_from_path(&PathBuf::from(&self.path_input))
+                {
+                    self.error = error.to_string();
+                    self.path_input.clear();
+                    return;
+                }
                 self.path = PathBuf::from(&self.path_input);
                 self.path_input.clear();
             }
@@ -63,7 +73,9 @@ impl App {
                 let mut path = self.path.as_path().to_path_buf();
 
                 path.push(directory_name.as_os_str());
-                self.write_directory_to_tree(&path);
+                if let Err(error) = self.write_directory_to_tree(&path) {
+                    self.error = error.to_string();
+                }
                 self.path = path;
             }
             Message::MoveUpDirectory => {
@@ -77,14 +89,20 @@ impl App {
             Message::MoveInExternalDirectory(external) => match std::env::consts::OS {
                 "windows" => {
                     self.update_path_prefix(&external);
-                    self.write_directory_to_tree(&PathBuf::from(&self.path));
+                    if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
+                        self.error = error.to_string();
+                    }
                 }
                 "macos" => {
                     self.path.clear();
                     self.path.push("/Volumes");
-                    self.write_directory_to_tree(&PathBuf::from(&self.path));
+                    if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
+                        self.error = error.to_string();
+                    }
                     self.path.push(&external);
-                    self.write_directory_to_tree(&PathBuf::from(&self.path));
+                    if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
+                        self.error = error.to_string();
+                    }
                 }
                 _ => {}
             },
@@ -127,11 +145,19 @@ impl App {
                 "macos" => {
                     let mut path = PathBuf::from("/");
                     self.insert_root_directory(&path);
-                    self.write_directory_to_tree(&path);
+                    if let Err(error) = self.write_directory_to_tree(&path) {
+                        self.error = error.to_string();
+                    }
                     path.push("Volumes");
-                    self.write_directory_to_tree(&path);
+                    if let Err(error) = self.write_directory_to_tree(&path) {
+                        self.error = error.to_string();
+                    }
                     self.get_volumes_on_macos();
-                    self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"));
+                    if let Err(error) =
+                        self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"))
+                    {
+                        self.error = error.to_string();
+                    }
                 }
                 _ => {}
             },
@@ -153,16 +179,21 @@ impl App {
         self.path = PathBuf::from(path);
     }
 
-    fn write_directory_to_tree(&mut self, path: &PathBuf) {
+    fn write_directory_to_tree(&mut self, path: &PathBuf) -> std::io::Result<()> {
         let mut new_dir = self.root.clone();
         match new_dir.get_mut_directory_by_path(&path) {
             Some(selected_directory) => {
                 if let Err(error) = self.root.read_path(&path, selected_directory) {
-                    self.error = error.to_string();
-                    return;
+                    return Err(error);
                 }
+                Ok(())
             }
-            None => self.error = String::from("Directory not found"),
+            None => {
+                return Err(std::io::Error::new(
+                    ErrorKind::NotFound,
+                    "Directory not found",
+                ));
+            }
         }
     }
 
@@ -189,16 +220,22 @@ impl App {
         }
     }
 
-    fn write_directories_from_path(&mut self, path: &PathBuf) {
+    fn write_directories_from_path(&mut self, path: &PathBuf) -> std::io::Result<()> {
         let mut path_stack = PathBuf::from("/");
         for component in path.iter() {
             if component == OsString::from("/") {
                 continue;
             }
             path_stack.push(OsString::from(component));
-            self.write_directory_to_tree(&path_stack);
+            if let Err(error) = self.write_directory_to_tree(&path_stack) {
+                if path_stack.pop() {
+                    self.path = path_stack;
+                }
+                return Err(error);
+            }
         }
         self.path = path.clone();
+        Ok(())
     }
 
     fn update_path_prefix(&mut self, key: &OsStr) {
