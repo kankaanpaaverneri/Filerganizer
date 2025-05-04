@@ -210,24 +210,20 @@ fn write_file_entry(entry: &DirEntry) -> Option<File> {
 fn remove_prefix_from_path(path: &PathBuf) -> Result<&Path, StripPrefixError> {
     match std::env::consts::OS {
         "windows" => {
-            let prefix = get_prefix_from_path(path);
+            let prefix = get_prefix_from_path_on_windows(path);
             return path.strip_prefix(prefix);
         }
         _ => path.strip_prefix("/")
     }
 }
 
-fn get_prefix_from_path(path: &PathBuf) -> String {
-    let mut prefix = String::new();
-    let mut i = 0;
-    for path_directory in path {
-        if i == 2 {
-            break;
+fn get_prefix_from_path_on_windows(path: &PathBuf) -> String {
+    let first_two_components = path.iter().take(2);
+    let list: Vec<_> = first_two_components.filter_map(|component| {
+        if let Some(text) = component.to_str() {
+            return Some(text);
         }
-        if let Some(p) = path_directory.to_str() {
-            prefix.push_str(p);
-        }
-        i += 1;
-    }
-    prefix
+        None
+    }).collect();
+    list.join("/")
 }

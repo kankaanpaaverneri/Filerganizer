@@ -6,7 +6,12 @@ mod metadata;
 
 use app::App;
 use iced;
+use iced::Theme;
 
 fn main() -> iced::Result {
-    iced::run("Filerganizer", App::update, App::view)
+    iced::application("Filerganizer", App::update, App::view).theme(theme).run()
+}
+
+fn theme(_: &App) -> Theme {
+    Theme::Dark
 }

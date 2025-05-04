@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{collections::BTreeMap, ffi::OsString};
 
 use iced::{
     widget::{
@@ -56,12 +56,14 @@ impl Layout {
                             text_input(path, app.get_path_input()).on_input(Message::TextInput),
                             button("Search").style(button_style)
                         ],
+                        self.insert_external_storage(app),
                         button("Previous")
                             .on_press(Message::MoveUpDirectory)
                             .style(button_style),
                         text(app.get_error()),
                     ]
                     .spacing(5),
+                    
                     self.insert_header(),
                     scrollable(
                         column![self.display_directory_contents(app).spacing(5)].spacing(10)
@@ -82,6 +84,17 @@ impl Layout {
         column = self.insert_directories(current_directory, column);
         column = self.insert_files(current_directory, column);
         column
+    }
+
+    fn insert_external_storage<'a>(&self, app: &'a App) -> Row<'a, Message> {
+        let mut row = Row::new();
+        let external_directories: &BTreeMap<OsString, Directory> = app.get_external_directories();
+        for key in external_directories.keys() {
+            if let Some(k) = key.to_str() {
+                row = row.push(button(k).style(button_style).on_press(Message::MoveInExternalDirectory(OsString::from(key))));
+            }
+        }
+        row
     }
 
     fn insert_header<'a>(&self) -> Row<'a, Message> {
