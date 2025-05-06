@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, ffi::OsString};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ffi::{OsStr, OsString},
+    path::{Iter, PathBuf},
+};
 
 use iced::{
     widget::{
@@ -16,13 +20,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+pub enum DirectoryView {
+    List,
+    DropDown,
+}
+
+#[derive(Debug, Clone)]
 pub enum Layout {
     Main,
     DirectoryExploringLayout,
 }
 
 impl Layout {
-    pub fn get_layout<'a>(&self, app: &'a App) -> Container<'a, Message> {
+    pub fn get_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
         match self {
             Layout::Main => self.main_layout(app),
             Layout::DirectoryExploringLayout => self.directory_exploring_layout(app),
@@ -53,18 +63,8 @@ impl Layout {
                             .on_press(Message::SwitchLayout(Layout::Main))
                             .style(button_style),
                         row![
-                            row![
-                                text_input(path, app.get_path_input())
-                                    .on_input(Message::TextInput)
-                                    .on_submit(Message::SearchPath),
-                                button("Search")
-                                    .style(button_style)
-                                    .on_press(Message::SearchPath)
-                            ],
-                            row![
-                                button("List view").style(button_style),
-                                button("Drop down").style(button_style)
-                            ],
+                            self.insert_search_bar(app, path),
+                            self.insert_directory_view_buttons(app),
                         ]
                         .spacing(10),
                         self.insert_external_storage(app),
@@ -86,13 +86,132 @@ impl Layout {
         }
     }
 
+    fn insert_search_bar<'a>(&self, app: &'a App, path: &str) -> Row<'a, Message> {
+        row![
+            text_input(path, app.get_path_input())
+                .on_input(Message::TextInput)
+                .on_submit(Message::SearchPath),
+            button("Search")
+                .style(button_style)
+                .on_press(Message::SearchPath)
+        ]
+    }
+
+    fn insert_directory_view_buttons<'a>(&self, app: &'a App) -> Row<'a, Message> {
+        row![
+            button("List view")
+                .on_press(Message::SwitchDirectoryView(DirectoryView::List))
+                .style(|theme: &Theme, _| {
+                    let status = match app.get_directory_view() {
+                        DirectoryView::List => button::Status::Disabled,
+                        DirectoryView::DropDown => button::Status::Active,
+                    };
+                    button_style(theme, status)
+                }),
+            button("Drop down")
+                .on_press(Message::SwitchDirectoryView(DirectoryView::DropDown))
+                .style(|theme: &Theme, _| {
+                    let status = match app.get_directory_view() {
+                        DirectoryView::List => button::Status::Active,
+                        DirectoryView::DropDown => button::Status::Disabled,
+                    };
+                    button_style(theme, status)
+                }),
+        ]
+    }
+
     fn display_directory_contents<'a>(&self, app: &'a App) -> Column<'a, Message> {
+        match app.get_directory_view() {
+            DirectoryView::List => self.display_directory_contents_as_list(app),
+            DirectoryView::DropDown => {
+                let path_component: PathBuf = app
+                    .get_path()
+                    .iter()
+                    .filter_map(|item| {
+                        if let Some(i) = item.to_str() {
+                            return Some(i);
+                        }
+                        None
+                    })
+                    .collect();
+                let mut path_iter = path_component.iter();
+                path_iter.next();
+                let root_dir = app.get_root_directory();
+
+                return self.display_directory_contents_as_dropdown(&root_dir, &mut path_iter);
+            }
+        }
+    }
+
+    fn display_directory_contents_as_list<'a>(&self, app: &'a App) -> Column<'a, Message> {
         let mut column = Column::new();
         let current_directory = app
             .get_root_directory()
             .get_directory_by_path(app.get_path());
         column = self.insert_directories(current_directory, column);
         column = self.insert_files(current_directory, column);
+        column
+    }
+
+    fn display_directory_contents_as_dropdown<'a>(
+        &self,
+        current_directory: &'a Directory,
+        path_iter: &mut Iter<'_>,
+    ) -> Column<'a, Message> {
+        let mut column = Column::new();
+        if let Some(path_directory) = path_iter.next() {
+            if let Some(directories) = current_directory.get_directories() {
+                column = self.insert_directories_in_column(
+                    directories,
+                    column,
+                    path_directory,
+                    path_iter,
+                );
+            }
+        } else {
+            if let Some(directories) = current_directory.get_directories() {
+                for (key, _) in directories.iter() {
+                    if let Some(k) = key.to_str() {
+                        column = column.push(
+                            button(k)
+                                .style(button_style)
+                                .on_press(Message::DropDownDirectory(OsString::from(key))),
+                        );
+                    }
+                }
+            }
+        }
+
+        column
+    }
+
+    fn insert_directories_in_column<'a>(
+        &self,
+        directories: &'a BTreeMap<OsString, Directory>,
+        mut column: Column<'a, Message>,
+        path_directory: &OsStr,
+        path_iter: &mut Iter<'_>,
+    ) -> Column<'a, Message> {
+        // Loops directories
+        for (key, _) in directories.iter() {
+            if let Some(k) = key.to_str() {
+                // Pushes buttons
+                column = column.push(
+                    button(k)
+                        .style(button_style)
+                        .on_press(Message::DropDownDirectory(OsString::from(key))),
+                );
+                // If button is one from the path
+                if k == path_directory {
+                    if let Some(directory) = directories.get(&OsString::from(key)) {
+                        let mut new_column =
+                            self.display_directory_contents_as_dropdown(directory, path_iter);
+                        new_column = new_column.padding(10);
+                        column = column.push(new_column);
+                    }
+                }
+            }
+        }
         column
     }
 
