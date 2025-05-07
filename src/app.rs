@@ -1,4 +1,4 @@
-use iced::widget::{Column, Container};
+use iced::widget::Container;
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
@@ -41,7 +41,8 @@ pub enum Message {
     MoveDownDirectory(OsString),
     MoveUpDirectory,
     MoveInExternalDirectory(OsString),
-    DropDownDirectory(OsString),
+    DropDownDirectory(PathBuf),
+    SelectPath,
     Exit,
 }
 
@@ -53,16 +54,30 @@ impl App {
     pub fn update(&mut self, message: Message) {
         self.error.clear();
         match message {
-            Message::SwitchLayout(layout) => self.switch_layout(layout),
+            Message::SwitchLayout(layout) => {
+                if let Err(error) = self.switch_layout(layout) {
+                    self.error = error.to_string();
+                }
+            }
             Message::TextInput(text_input) => self.path_input = text_input,
-            Message::SearchPath => self.search_path(),
-            Message::MoveDownDirectory(directory_name) => self.move_down_directory(&directory_name),
+            Message::SearchPath => {
+                if let Err(error) = self.search_path() {
+                    self.error = error.to_string();
+                }
+            }
+            Message::MoveDownDirectory(directory_name) => {
+                if let Err(error) = self.move_down_directory(&directory_name) {
+                    self.error = error.to_string();
+                }
+            }
             Message::MoveUpDirectory => self.move_up_directory(),
             Message::MoveInExternalDirectory(external) => {
-                self.move_in_external_directory(&external)
+                if let Err(error) = self.move_in_external_directory(&external) {
+                    self.error = error.to_string();
+                }
             }
             Message::DropDownDirectory(directory_name) => {
-                if let Err(error) = self.drop_down_directory(&directory_name) {
+                if let Err(error) = self.select_drop_down_directory(&directory_name) {
                     self.error = error.to_string();
                 }
             }
@@ -78,6 +93,9 @@ impl App {
                     }
                 }
             },
+            Message::SelectPath => {
+                println!("Selected path: {:?}", self.path);
+            }
             Message::Exit => std::process::exit(0),
         }
     }
@@ -105,7 +123,7 @@ impl App {
         self.directory_view.clone()
     }
 
-    fn switch_layout(&mut self, layout: Layout) {
+    fn switch_layout(&mut self, layout: Layout) -> std::io::Result<()> {
         match layout {
             Layout::DirectoryExploringLayout => match std::env::consts::OS {
                 "windows" => {
@@ -115,36 +133,24 @@ impl App {
                             self.external_storage.insert(path);
                         }
                         self.insert_root_directory(&path);
-                        if let Some(path_str) = self.path.to_str() {
-                            self.path_input = String::from(path_str);
-                        }
+                        self.update_path_input();
                     }
                     self.layout = Layout::DirectoryExploringLayout;
-                    self.directory_view = DirectoryView::List;
+                    Ok(())
                 }
                 "macos" => {
                     let mut path = PathBuf::from("/");
                     self.insert_root_directory(&path);
-                    if let Err(error) = self.write_directory_to_tree(&path) {
-                        self.error = error.to_string();
-                    }
+                    self.write_directory_to_tree(&path)?;
                     path.push("Volumes");
-                    if let Err(error) = self.write_directory_to_tree(&path) {
-                        self.error = error.to_string();
-                    }
+                    self.write_directory_to_tree(&path)?;
                     self.get_volumes_on_macos();
-                    if let Err(error) =
-                        self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"))
-                    {
-                        self.error = error.to_string();
-                    }
-                    if let Some(path_str) = self.path.to_str() {
-                        self.path_input = String::from(path_str);
-                    }
+                    self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"))?;
+                    self.update_path_input();
                     self.layout = Layout::DirectoryExploringLayout;
-                    self.directory_view = DirectoryView::List;
+                    Ok(())
                 }
-                _ => {}
+                _ => Ok(()),
             },
             Layout::Main => {
                 self.root.clear_directory_content();
@@ -153,35 +159,28 @@ impl App {
                 self.path_input.clear();
                 self.external_storage.clear();
                 self.layout = Layout::Main;
+                Ok(())
             }
         }
     }
 
-    fn search_path(&mut self) {
+    fn search_path(&mut self) -> std::io::Result<()> {
         if self.path_input.is_empty() {
             self.path_input = String::from("/");
         }
-        if let Err(error) = self.write_directories_from_path(&PathBuf::from(&self.path_input)) {
-            self.error = error.to_string();
-            return;
-        }
+        self.write_directories_from_path(&PathBuf::from(&self.path_input))?;
         self.path = PathBuf::from(&self.path_input);
-        if let Some(path_str) = self.path.to_str() {
-            self.path_input = String::from(path_str);
-        }
+        self.update_path_input();
+        Ok(())
     }
 
-    fn move_down_directory(&mut self, directory_name: &OsStr) {
+    fn move_down_directory(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
         let mut path = PathBuf::from(&self.path);
         path.push(directory_name);
-        if let Err(error) = self.write_directory_to_tree(&path) {
-            self.error = error.to_string();
-            return;
-        }
+        self.write_directory_to_tree(&path)?;
         self.path = path;
-        if let Some(path_str) = self.path.to_str() {
-            self.path_input = String::from(path_str);
-        }
+        self.update_path_input();
+        Ok(())
     }
 
     fn move_up_directory(&mut self) {
@@ -191,84 +190,95 @@ impl App {
                 last.clear_directory_content();
             }
         }
-        if let Some(path_str) = self.path.to_str() {
-            self.path_input = String::from(path_str);
-        }
+        self.update_path_input();
     }
 
-    fn move_in_external_directory(&mut self, external: &OsStr) {
+    fn move_in_external_directory(&mut self, external: &OsStr) -> std::io::Result<()> {
         match std::env::consts::OS {
             "windows" => {
                 self.update_path_prefix(external);
-                if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
-                    self.error = error.to_string();
-                }
-                if let Some(path_str) = self.path.to_str() {
-                    self.path_input = String::from(path_str);
-                }
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.update_path_input();
+                Ok(())
             }
             "macos" => {
                 self.path.clear();
                 self.path.push("/Volumes");
-                if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
-                    self.error = error.to_string();
-                }
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
                 self.path.push(external);
-                if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
-                    self.error = error.to_string();
-                }
-                if let Some(path_str) = self.path.to_str() {
-                    self.path_input = String::from(path_str);
-                }
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.update_path_input();
+                Ok(())
             }
-            _ => {}
+            _ => Ok(()),
         }
     }
 
-    fn drop_down_directory(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
-        if self.is_directory_name_in_path(directory_name) {
-            self.clear_directories_by_path(directory_name);
-        } else {
-            self.path.push(directory_name);
-            if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
-                if let ErrorKind::NotFound = error.kind() {
-                    if let Err(error) = self.find_directory_from_current_path(directory_name) {
-                        return Err(error);
-                    }
-                    if let Some(path_str) = self.path.to_str() {
-                        self.path_input = String::from(path_str);
-                    }
-                    return Ok(());
+    fn select_drop_down_directory(
+        &mut self,
+        path_to_selected_directory: &PathBuf,
+    ) -> std::io::Result<()> {
+        if let Some(last) = path_to_selected_directory.iter().last() {
+            if self.is_directory_name_in_path(last) {
+                if self.are_paths_equal(path_to_selected_directory) {
+                    self.clear_directories_by_path(last);
+                } else {
+                    self.drop_down_directory(path_to_selected_directory, last)?;
                 }
-                self.path.pop();
-                return Err(error);
-            }
-            if let Some(path_str) = self.path.to_str() {
-                self.path_input = String::from(path_str);
+            } else {
+                self.drop_down_directory(path_to_selected_directory, last)?;
             }
         }
         Ok(())
     }
 
-    fn find_directory_from_current_path(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
+    fn are_paths_equal(&self, path_to_selected_directory: &PathBuf) -> bool {
+        let mut components = path_to_selected_directory.components();
+        for current_path in self.path.iter() {
+            if let Some(component) = components.next() {
+                if component.as_os_str() != current_path {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn drop_down_directory(
+        &mut self,
+        path_to_selected_directory: &PathBuf,
+        last: &OsStr,
+    ) -> std::io::Result<()> {
+        if !self.are_paths_equal(path_to_selected_directory) {
+            self.path = PathBuf::from(path_to_selected_directory);
+        } else {
+            self.path.push(last);
+        }
+        if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
+            if let ErrorKind::NotFound = error.kind() {
+                self.find_directory_from_parents(last)?;
+                self.update_path_input();
+                return Ok(());
+            }
+            self.path.pop();
+            return Err(error);
+        }
+        self.update_path_input();
+        Ok(())
+    }
+
+    fn find_directory_from_parents(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
         let mut path_stack = PathBuf::new();
         let original_path = PathBuf::from(&self.path);
         for path_directory in &original_path {
             path_stack.push(path_directory);
-            if let Some(dir) = self.root.get_mut_directory_by_path(&path_stack) {
-                if let Some(sub_directories) = dir.get_directories() {
+            if let Some(current_directory) = self.root.get_mut_directory_by_path(&path_stack) {
+                if let Some(sub_directories) = current_directory.get_directories() {
                     if let Some(_) = sub_directories.get(directory_name) {
                         path_stack.push(directory_name);
-                        if let Err(error) =
-                            self.write_directory_to_tree(&PathBuf::from(&path_stack))
-                        {
-                            self.error = error.to_string();
-                            return Err(error);
-                        }
+                        self.write_directory_to_tree(&PathBuf::from(&path_stack))?;
                         self.path = PathBuf::from(&path_stack);
-                        if let Some(path_str) = self.path.to_str() {
-                            self.path_input = String::from(path_str);
-                        }
+                        self.update_path_input();
                     }
                 }
             }
@@ -276,22 +286,18 @@ impl App {
         Ok(())
     }
 
-    fn clear_directories_by_path(&mut self, directory_name: &OsStr) {
+    fn clear_directories_by_path(&mut self, selected_directory: &OsStr) {
         while let Some(last_directory) = self.root.get_mut_directory_by_path(&self.path) {
             last_directory.clear_directory_content();
             if let Some(last) = self.path.iter().last() {
-                if last == directory_name {
+                if last == selected_directory {
                     self.path.pop();
-                    if let Some(path_str) = self.path.to_str() {
-                        self.path_input = String::from(path_str);
-                    }
+                    self.update_path_input();
                     break;
                 }
             }
             self.path.pop();
-            if let Some(path_str) = self.path.to_str() {
-                self.path_input = String::from(path_str);
-            }
+            self.update_path_input();
         }
     }
 
@@ -377,6 +383,12 @@ impl App {
             if keys == key {
                 self.path = PathBuf::from(key);
             }
+        }
+    }
+
+    fn update_path_input(&mut self) {
+        if let Some(path_str) = self.path.to_str() {
+            self.path_input = String::from(path_str);
         }
     }
 }
