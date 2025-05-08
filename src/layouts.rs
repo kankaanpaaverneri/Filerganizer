@@ -132,9 +132,13 @@ impl Layout {
                 let mut path_stack = PathBuf::new();
                 if let Some(root) = path_iter.next() {
                     path_stack.push(root);
+                    if let std::env::consts::OS = "windows" {
+                        if let Some(next) = path_iter.next() {
+                            path_stack.push(next);
+                        }
+                    }
                 }
                 let root_dir = app.get_root_directory();
-
                 return column![scrollable(self.insert_directory_content_as_dropdown(
                     root_dir,
                     &path,
@@ -250,7 +254,7 @@ impl Layout {
         selected_directory_key: &'a OsStr,
         full_path: &PathBuf,
         mut column: Column<'a, Message>,
-    ) -> Column<Message> {
+    ) -> Column<'a, Message> {
         let mut path_stack = PathBuf::from(&full_path);
 
         if let Some(last) = path_stack.iter().last() {
@@ -293,7 +297,7 @@ impl Layout {
         &'a self,
         root_dir: &'a Directory,
         mut column: Column<'a, Message>,
-    ) -> Column<Message> {
+    ) -> Column<'a, Message> {
         if let Some(files) = root_dir.get_files() {
             for (key, _) in files.iter() {
                 if let Some(file_name) = key.to_str() {

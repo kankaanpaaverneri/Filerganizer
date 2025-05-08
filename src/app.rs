@@ -76,8 +76,8 @@ impl App {
                     self.error = error.to_string();
                 }
             }
-            Message::DropDownDirectory(directory_name) => {
-                if let Err(error) = self.select_drop_down_directory(&directory_name) {
+            Message::DropDownDirectory(path_to_selected_directory) => {
+                if let Err(error) = self.select_drop_down_directory(&path_to_selected_directory) {
                     self.error = error.to_string();
                 }
             }
