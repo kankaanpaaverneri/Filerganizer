@@ -6,7 +6,8 @@ use std::{
 
 use iced::{
     widget::{
-        button, column, container, row, scrollable, text, text_input, Column, Container, Row,
+        button, checkbox, column, container, row, scrollable, text, text_input, Column, Container,
+        Row,
     },
     Background, Color,
     Length::{Fill, FillPortion},
@@ -18,6 +19,23 @@ use crate::{
     directory::Directory,
     metadata::Metadata,
 };
+pub struct CheckboxStates {
+    pub organize_by_filetype: bool,
+    pub organize_by_date: bool,
+    pub insert_date_to_file_name: bool,
+    pub insert_directory_name_to_file_name: bool,
+}
+
+impl Default for CheckboxStates {
+    fn default() -> Self {
+        Self {
+            organize_by_filetype: false,
+            organize_by_date: false,
+            insert_date_to_file_name: false,
+            insert_directory_name_to_file_name: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum DirectoryView {
@@ -28,14 +46,16 @@ pub enum DirectoryView {
 #[derive(Debug, Clone)]
 pub enum Layout {
     Main,
-    DirectoryExploringLayout,
+    DirectorySelectionLayout,
+    DirectoryOrganizingLayout,
 }
 
 impl Layout {
     pub fn get_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
         match self {
             Layout::Main => self.main_layout(app),
-            Layout::DirectoryExploringLayout => self.directory_tree_layout(app),
+            Layout::DirectorySelectionLayout => self.directory_tree_layout(app),
+            Layout::DirectoryOrganizingLayout => self.directory_organizing_layout(app),
         }
     }
 
@@ -44,9 +64,11 @@ impl Layout {
             text("Filerganizer").size(50),
             row![
                 button("Select directory to organize")
-                    .style(button_style)
-                    .on_press(Message::SwitchLayout(Layout::DirectoryExploringLayout)),
-                button("Exit").on_press(Message::Exit).style(button_style)
+                    .style(directory_button_style)
+                    .on_press(Message::SwitchLayout(Layout::DirectorySelectionLayout)),
+                button("Exit")
+                    .on_press(Message::Exit)
+                    .style(directory_button_style)
             ]
             .spacing(10)
         ])
@@ -61,7 +83,7 @@ impl Layout {
                     column![
                         button("Main Menu")
                             .on_press(Message::SwitchLayout(Layout::Main))
-                            .style(button_style),
+                            .style(directory_button_style),
                         row![
                             self.insert_search_bar(app, path),
                             self.insert_directory_view_buttons(app),
@@ -71,7 +93,7 @@ impl Layout {
                         self.insert_external_storage(app),
                         button("Previous")
                             .on_press(Message::MoveUpDirectory)
-                            .style(button_style),
+                            .style(directory_button_style),
                         text(app.get_error()),
                     ]
                     .spacing(5),
@@ -85,13 +107,113 @@ impl Layout {
         }
     }
 
+    fn directory_organizing_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
+        if let Some(path) = app.get_path().to_str() {
+            container(column![
+                row![text("Selected path: "), text(path)]
+                    .spacing(5)
+                    .padding(10),
+                row![
+                    scrollable(self.display_selected_path_content(app)),
+                    column![
+                        text("Selected files"),
+                        self.insert_files_selected(app),
+                        self.rules_for_directory(app)
+                    ]
+                    .spacing(5)
+                ]
+                .spacing(5)
+            ])
+        } else {
+            container(text("Could not find path"))
+        }
+    }
+
+    fn rules_for_directory(&self, app: &App) -> Column<Message> {
+        column![
+            text("Rules"),
+            column![
+                checkbox(
+                    "Organize to directories by file type.",
+                    app.get_checkbox_states().organize_by_filetype
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 1) }),
+                checkbox(
+                    "Organize to directories by date.",
+                    app.get_checkbox_states().organize_by_date
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 2) }),
+                checkbox(
+                    "Insert date to file name",
+                    app.get_checkbox_states().insert_date_to_file_name
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 3) }),
+                checkbox(
+                    "Insert directory name to file name",
+                    app.get_checkbox_states().insert_directory_name_to_file_name
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
+            ]
+        ]
+    }
+
+    fn insert_files_selected<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let mut column = Column::new();
+        for (key, _) in app.get_files_selected() {
+            if let Some(file_name) = key.to_str() {
+                column = column.push(text(file_name));
+            }
+        }
+        column = column.push(row![
+            text_input("New directory name", app.get_new_directory_input())
+                .on_input(Message::InputNewDirectoryName),
+            button("Create directory with selected items")
+                .on_press(Message::CreateDirectoryWithSelectedFiles),
+        ]);
+        column
+    }
+
+    fn display_selected_path_content<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let mut column = Column::new();
+        let root = app
+            .get_root_directory()
+            .get_directory_by_path(app.get_path());
+        if let Some(directories) = root.get_directories() {
+            for (key, directory) in directories {
+                if let Some(dir_name) = key.to_str() {
+                    if let Some(metadata) = directory.get_metadata() {
+                        let row = self.insert_formatted_metadata(dir_name, metadata, 1);
+                        column = column.push(button(row).style(directory_button_style).on_press(
+                            Message::SelectDirectory(OsString::from(key), directory.clone()),
+                        ))
+                    }
+                }
+            }
+        }
+        if let Some(files) = root.get_files() {
+            for (key, file) in files {
+                if let Some(file_name) = key.to_str() {
+                    if let Some(metadata) = file.get_metadata() {
+                        let row = self.insert_formatted_metadata(file_name, metadata, 1);
+                        column = column.push(
+                            button(row)
+                                .style(file_button_style)
+                                .on_press(Message::SelectFile(OsString::from(key), file.clone())),
+                        );
+                    }
+                }
+            }
+        }
+        column
+    }
+
     fn insert_search_bar<'a>(&self, app: &'a App, path: &str) -> Row<'a, Message> {
         row![
             text_input(path, app.get_path_input())
                 .on_input(Message::TextInput)
                 .on_submit(Message::SearchPath),
             button("Search")
-                .style(button_style)
+                .style(directory_button_style)
                 .on_press(Message::SearchPath)
         ]
     }
@@ -105,7 +227,7 @@ impl Layout {
                         DirectoryView::List => button::Status::Disabled,
                         DirectoryView::DropDown => button::Status::Active,
                     };
-                    button_style(theme, status)
+                    directory_button_style(theme, status)
                 }),
             button("Drop down")
                 .on_press(Message::SwitchDirectoryView(DirectoryView::DropDown))
@@ -114,7 +236,7 @@ impl Layout {
                         DirectoryView::List => button::Status::Active,
                         DirectoryView::DropDown => button::Status::Disabled,
                     };
-                    button_style(theme, status)
+                    directory_button_style(theme, status)
                 }),
         ]
     }
@@ -206,7 +328,7 @@ impl Layout {
             if let Some(k) = key.to_str() {
                 row = row.push(
                     button(k)
-                        .style(button_style)
+                        .style(directory_button_style)
                         .on_press(Message::MoveInExternalDirectory(OsString::from(key))),
                 );
             }
@@ -240,7 +362,7 @@ impl Layout {
                             button(row)
                                 .on_press(Message::MoveDownDirectory(OsString::from(key)))
                                 .padding(10)
-                                .style(button_style),
+                                .style(directory_button_style),
                         );
                     }
                 }
@@ -268,7 +390,7 @@ impl Layout {
                 button(key)
                     .width(500)
                     .padding(5)
-                    .style(button_style)
+                    .style(directory_button_style)
                     .on_press(Message::DropDownDirectory(PathBuf::from(&path_stack))),
             );
         }
@@ -381,40 +503,82 @@ fn round_size(size: f64) -> (f64, String) {
     (divided_size, postfix)
 }
 
-fn button_style(_: &Theme, status: button::Status) -> button::Style {
+fn directory_button_style(_: &Theme, status: button::Status) -> button::Style {
     match status {
         button::Status::Active => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_button_background_color(1.0)));
+            let mut style = button::Style::default().with_background(Background::Color(
+                get_directory_button_background_color(1.0),
+            ));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }
         button::Status::Hovered => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_button_background_color(0.7)));
+            let mut style = button::Style::default().with_background(Background::Color(
+                get_directory_button_background_color(0.7),
+            ));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }
         button::Status::Disabled => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_button_background_color(0.1)));
+            let mut style = button::Style::default().with_background(Background::Color(
+                get_directory_button_background_color(0.1),
+            ));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }
         button::Status::Pressed => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_button_background_color(0.4)));
+            let mut style = button::Style::default().with_background(Background::Color(
+                get_directory_button_background_color(0.4),
+            ));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }
     }
 }
 
-fn get_button_background_color(alpha_value: f32) -> Color {
+fn file_button_style(_: &Theme, status: button::Status) -> button::Style {
+    match status {
+        button::Status::Active => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(1.0)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Hovered => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.7)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Disabled => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.1)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Pressed => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.7)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+    }
+}
+
+fn get_directory_button_background_color(alpha_value: f32) -> Color {
     Color {
         r: 0.42,
         g: 0.53,
         b: 0.671,
+        a: alpha_value,
+    }
+}
+
+fn get_file_button_background_color(alpha_value: f32) -> Color {
+    Color {
+        r: 0.4,
+        g: 0.4,
+        b: 0.4,
         a: alpha_value,
     }
 }

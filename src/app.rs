@@ -1,12 +1,14 @@
 use iced::widget::Container;
-use std::collections::BTreeSet;
+use iced::Task;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use crate::directory::Directory;
-use crate::layouts::{DirectoryView, Layout};
+use crate::file::File;
+use crate::layouts::{CheckboxStates, DirectoryView, Layout};
 
 pub struct App {
     path: PathBuf,
@@ -16,6 +18,11 @@ pub struct App {
     external_storage: BTreeSet<OsString>,
     layout: Layout,
     directory_view: DirectoryView,
+
+    directories_selected: BTreeMap<OsString, Directory>,
+    files_selected: BTreeMap<OsString, File>,
+    new_directory_name: String,
+    checkbox_states: CheckboxStates,
 }
 
 impl Default for App {
@@ -28,6 +35,11 @@ impl Default for App {
             external_storage: BTreeSet::new(),
             layout: Layout::Main,
             directory_view: DirectoryView::List,
+
+            directories_selected: BTreeMap::new(),
+            files_selected: BTreeMap::new(),
+            new_directory_name: String::new(),
+            checkbox_states: CheckboxStates::default(),
         }
     }
 }
@@ -42,7 +54,13 @@ pub enum Message {
     MoveUpDirectory,
     MoveInExternalDirectory(OsString),
     DropDownDirectory(PathBuf),
+
     SelectPath,
+    SelectDirectory(OsString, Directory),
+    SelectFile(OsString, File),
+    InputNewDirectoryName(String),
+    CreateDirectoryWithSelectedFiles,
+    CheckboxToggled(bool, usize),
     Exit,
 }
 
@@ -51,52 +69,134 @@ impl App {
         self.layout.get_layout(self)
     }
 
-    pub fn update(&mut self, message: Message) {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         self.error.clear();
         match message {
             Message::SwitchLayout(layout) => {
-                if let Err(error) = self.switch_layout(layout) {
+                if let Err(error) = self.switch_layout(&layout) {
                     self.error = error.to_string();
                 }
+                Task::none()
             }
-            Message::TextInput(text_input) => self.path_input = text_input,
+            Message::TextInput(text_input) => {
+                self.path_input = text_input;
+                Task::none()
+            }
             Message::SearchPath => {
                 if let Err(error) = self.search_path() {
                     self.error = error.to_string();
                 }
+                Task::none()
             }
             Message::MoveDownDirectory(directory_name) => {
                 if let Err(error) = self.move_down_directory(&directory_name) {
                     self.error = error.to_string();
                 }
+                Task::none()
             }
-            Message::MoveUpDirectory => self.move_up_directory(),
+            Message::MoveUpDirectory => {
+                self.move_up_directory();
+                Task::none()
+            }
             Message::MoveInExternalDirectory(external) => {
                 if let Err(error) = self.move_in_external_directory(&external) {
                     self.error = error.to_string();
                 }
+                Task::none()
             }
             Message::DropDownDirectory(path_to_selected_directory) => {
                 if let Err(error) = self.select_drop_down_directory(&path_to_selected_directory) {
                     self.error = error.to_string();
                 }
+                Task::none()
             }
             Message::SwitchDirectoryView(directory_view) => match directory_view {
                 DirectoryView::List => {
                     if let DirectoryView::DropDown = self.directory_view {
                         self.directory_view = directory_view;
                     }
+                    Task::none()
                 }
                 DirectoryView::DropDown => {
                     if let DirectoryView::List = self.directory_view {
                         self.directory_view = directory_view;
                     }
+                    Task::none()
                 }
             },
             Message::SelectPath => {
-                println!("Selected path: {:?}", self.path);
+                if let Err(error) = self.switch_layout(&Layout::DirectoryOrganizingLayout) {
+                    self.error = error.to_string();
+                }
+                Task::none()
             }
-            Message::Exit => std::process::exit(0),
+            Message::SelectDirectory(directory_name, _directory) => {
+                if let Some(_) = self.directories_selected.get(&directory_name) {
+                    self.directories_selected.remove(&directory_name);
+                } else {
+                    self.directories_selected
+                        .insert(directory_name, Directory::new(None));
+                }
+                Task::none()
+            }
+            Message::SelectFile(file_name, file) => {
+                if let Some(_) = self.files_selected.get(&file_name) {
+                    self.files_selected.remove(&file_name);
+                } else {
+                    self.files_selected.insert(file_name, file);
+                }
+                Task::none()
+            }
+
+            Message::InputNewDirectoryName(input) => {
+                self.new_directory_name = input;
+                Task::none()
+            }
+            Message::CreateDirectoryWithSelectedFiles => {
+                if self.files_selected.is_empty() {
+                    return Task::none();
+                }
+                if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
+                    // Copy selected files to new sub directory
+                    selected_directory.insert_new_sub_directory(
+                        &self.new_directory_name,
+                        self.files_selected.clone(),
+                    );
+                    // Remove old files from this directory
+                    if let Some(directory_files) = selected_directory.get_mut_files() {
+                        for (key, _file) in &self.files_selected {
+                            if directory_files.contains_key(key) {
+                                directory_files.remove(key);
+                            }
+                        }
+                    }
+
+                    self.files_selected.clear(); // Clear selection
+                    self.new_directory_name.clear(); // Clear input field
+                }
+
+                Task::none()
+            }
+            Message::CheckboxToggled(toggle, id) => match id {
+                1 => {
+                    self.checkbox_states.organize_by_filetype = toggle;
+                    return Task::none();
+                }
+                2 => {
+                    self.checkbox_states.organize_by_date = toggle;
+                    return Task::none();
+                }
+                3 => {
+                    self.checkbox_states.insert_date_to_file_name = toggle;
+                    return Task::none();
+                }
+                4 => {
+                    self.checkbox_states.insert_directory_name_to_file_name = toggle;
+                    return Task::none();
+                }
+                _ => Task::none(),
+            },
+            Message::Exit => iced::exit(),
         }
     }
 
@@ -123,9 +223,21 @@ impl App {
         self.directory_view.clone()
     }
 
-    fn switch_layout(&mut self, layout: Layout) -> std::io::Result<()> {
+    pub fn get_files_selected(&self) -> &BTreeMap<OsString, File> {
+        &self.files_selected
+    }
+
+    pub fn get_new_directory_input(&self) -> &String {
+        &self.new_directory_name
+    }
+
+    pub fn get_checkbox_states(&self) -> &CheckboxStates {
+        &self.checkbox_states
+    }
+
+    fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
         match layout {
-            Layout::DirectoryExploringLayout => match std::env::consts::OS {
+            Layout::DirectorySelectionLayout => match std::env::consts::OS {
                 "windows" => {
                     if let Some(first) = self.get_drives_on_windows().first() {
                         let path = PathBuf::from(first);
@@ -135,7 +247,7 @@ impl App {
                         self.insert_root_directory(&path);
                         self.update_path_input();
                     }
-                    self.layout = Layout::DirectoryExploringLayout;
+                    self.layout = Layout::DirectorySelectionLayout;
                     Ok(())
                 }
                 "macos" => {
@@ -147,7 +259,7 @@ impl App {
                     self.get_volumes_on_macos();
                     self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"))?;
                     self.update_path_input();
-                    self.layout = Layout::DirectoryExploringLayout;
+                    self.layout = Layout::DirectorySelectionLayout;
                     Ok(())
                 }
                 _ => Ok(()),
@@ -159,6 +271,14 @@ impl App {
                 self.path_input.clear();
                 self.external_storage.clear();
                 self.layout = Layout::Main;
+                Ok(())
+            }
+            Layout::DirectoryOrganizingLayout => {
+                let mut path = PathBuf::from(&self.path);
+                if let Err(error) = self.write_selected_directory_recursively(&mut path) {
+                    self.error = error.to_string();
+                }
+                self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
             }
         }
@@ -352,6 +472,18 @@ impl App {
             }
         }
         self.path = path.clone();
+        Ok(())
+    }
+
+    fn write_selected_directory_recursively(
+        &mut self,
+        path_stack: &mut PathBuf,
+    ) -> std::io::Result<()> {
+        if let Some(directory) = self.root.get_mut_directory_by_path(path_stack) {
+            if let Err(err) = directory.write_directories_recursive(path_stack) {
+                return Err(err);
+            }
+        }
         Ok(())
     }
 

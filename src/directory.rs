@@ -21,6 +21,30 @@ impl Directory {
         }
     }
 
+    pub fn insert_new_sub_directory(
+        &mut self,
+        directory_name: &str,
+        files: BTreeMap<OsString, File>,
+    ) {
+        if let Some(sub_directories) = &mut self.directories {
+            sub_directories.insert(
+                OsString::from(directory_name),
+                Directory {
+                    directories: None,
+                    files: Some(files),
+                    metadata: Some(Metadata::build(
+                        Some(OsString::from(directory_name)),
+                        None,
+                        None,
+                        None,
+                        None,
+                        false,
+                    )),
+                },
+            );
+        }
+    }
+
     pub fn read_path(
         &mut self,
         path: &PathBuf,
@@ -92,12 +116,33 @@ impl Directory {
         self.files = None;
     }
 
+    pub fn write_directories_recursive(&mut self, path: &mut PathBuf) -> std::io::Result<()> {
+        if let Some(mut sub_directories) = self.directories.take() {
+            let mut new_directories = BTreeMap::new();
+            for (name, mut directory) in sub_directories {
+                path.push(&name);
+                let mut new_sub_directory = Directory::new(None);
+                directory.read_path(path, &mut new_sub_directory)?;
+                new_sub_directory.write_directories_recursive(path)?;
+                path.pop();
+                new_directories.insert(OsString::from(&name), new_sub_directory);
+            }
+            sub_directories = new_directories;
+            self.directories = Some(sub_directories);
+        }
+        Ok(())
+    }
+
     pub fn get_directories(&self) -> &Option<BTreeMap<OsString, Directory>> {
         &self.directories
     }
 
     pub fn get_files(&self) -> &Option<BTreeMap<OsString, File>> {
         &self.files
+    }
+
+    pub fn get_mut_files(&mut self) -> &mut Option<BTreeMap<OsString, File>> {
+        &mut self.files
     }
 
     pub fn get_metadata(&self) -> &Option<Metadata> {
@@ -151,6 +196,7 @@ fn insert_entries(
     for entry in read_dir {
         if let Some(ok_entry) = entry.ok() {
             let file_name = ok_entry.file_name();
+
             if let Some(directory) = write_directory_entry(&ok_entry) {
                 directories.insert(OsString::from(file_name.as_os_str()), directory);
             }
