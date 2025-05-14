@@ -19,7 +19,7 @@ pub struct App {
     layout: Layout,
     directory_view: DirectoryView,
 
-    directories_selected: BTreeMap<OsString, Directory>,
+    directories_selected: Vec<OsString>,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
@@ -36,7 +36,7 @@ impl Default for App {
             layout: Layout::Main,
             directory_view: DirectoryView::List,
 
-            directories_selected: BTreeMap::new(),
+            directories_selected: Vec::new(),
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
@@ -56,7 +56,7 @@ pub enum Message {
     DropDownDirectory(PathBuf),
 
     SelectPath,
-    SelectDirectory(OsString, Directory),
+    SelectDirectory(OsString),
     SelectFile(OsString, File),
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
@@ -130,12 +130,15 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SelectDirectory(directory_name, _directory) => {
-                if let Some(_) = self.directories_selected.get(&directory_name) {
-                    self.directories_selected.remove(&directory_name);
+            Message::SelectDirectory(directory_name) => {
+                if self.directories_selected.contains(&directory_name) {
+                    while let Some(dir) = self.directories_selected.pop() {
+                        if dir == directory_name {
+                            break;
+                        }
+                    }
                 } else {
-                    self.directories_selected
-                        .insert(directory_name, Directory::new(None));
+                    self.directories_selected.push(directory_name);
                 }
                 Task::none()
             }
@@ -158,19 +161,19 @@ impl App {
                 }
                 if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
                     // Copy selected files to new sub directory
+                    println!("Files selected: {:?}", self.files_selected);
                     selected_directory.insert_new_sub_directory(
                         &self.new_directory_name,
                         self.files_selected.clone(),
                     );
                     // Remove old files from this directory
-                    if let Some(directory_files) = selected_directory.get_mut_files() {
+                    if let Some(files) = selected_directory.get_mut_files() {
                         for (key, _file) in &self.files_selected {
-                            if directory_files.contains_key(key) {
-                                directory_files.remove(key);
+                            if files.contains_key(key) {
+                                files.remove(key);
                             }
                         }
                     }
-
                     self.files_selected.clear(); // Clear selection
                     self.new_directory_name.clear(); // Clear input field
                 }
@@ -225,6 +228,10 @@ impl App {
 
     pub fn get_files_selected(&self) -> &BTreeMap<OsString, File> {
         &self.files_selected
+    }
+
+    pub fn get_directories_selected(&self) -> &Vec<OsString> {
+        &self.directories_selected
     }
 
     pub fn get_new_directory_input(&self) -> &String {

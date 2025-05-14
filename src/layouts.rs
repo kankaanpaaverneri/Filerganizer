@@ -178,27 +178,76 @@ impl Layout {
         let root = app
             .get_root_directory()
             .get_directory_by_path(app.get_path());
-        if let Some(directories) = root.get_directories() {
-            for (key, directory) in directories {
-                if let Some(dir_name) = key.to_str() {
-                    if let Some(metadata) = directory.get_metadata() {
-                        let row = self.insert_formatted_metadata(dir_name, metadata, 1);
-                        column = column.push(button(row).style(directory_button_style).on_press(
-                            Message::SelectDirectory(OsString::from(key), directory.clone()),
-                        ))
-                    }
-                }
-            }
-        }
+        let path_stack = PathBuf::from(app.get_path());
+        let mut path_component_iter: std::slice::Iter<'_, OsString> =
+            app.get_directories_selected().iter();
+        column = self.display_directories_as_dropdown(
+            app,
+            root,
+            &path_stack,
+            &mut path_component_iter,
+            column,
+        );
         if let Some(files) = root.get_files() {
             for (key, file) in files {
                 if let Some(file_name) = key.to_str() {
-                    if let Some(metadata) = file.get_metadata() {
-                        let row = self.insert_formatted_metadata(file_name, metadata, 1);
+                    column = column.push(
+                        button(file_name)
+                            .style(file_button_style)
+                            .on_press(Message::SelectFile(OsString::from(&key), file.clone())),
+                    )
+                }
+            }
+        }
+        column
+    }
+    // For when all sub directories are already read
+    fn display_directories_as_dropdown<'a>(
+        &'a self,
+        app: &'a App,
+        current_directory: &'a Directory,
+        path_stack: &PathBuf,
+        path_component_iter: &mut std::slice::Iter<'_, OsString>,
+        mut column: Column<'a, Message>,
+    ) -> Column<'a, Message> {
+        if let Some(next) = path_component_iter.next() {
+            if let Some(directories) = current_directory.get_directories() {
+                for (key, directory) in directories {
+                    if let Some(directory_name) = key.to_str() {
                         column = column.push(
-                            button(row)
-                                .style(file_button_style)
-                                .on_press(Message::SelectFile(OsString::from(key), file.clone())),
+                            button(directory_name)
+                                .on_press(Message::SelectDirectory(OsString::from(key))),
+                        );
+                    }
+
+                    if next == key {
+                        let mut new_column = Column::new();
+                        new_column = self.display_directories_as_dropdown(
+                            app,
+                            directory,
+                            path_stack,
+                            path_component_iter,
+                            new_column,
+                        );
+                        new_column = new_column.padding(10);
+                        if let Some(files) = directory.get_files() {
+                            for (key, _file) in files {
+                                if let Some(file_name) = key.to_str() {
+                                    column = column.push(text(file_name))
+                                }
+                            }
+                        }
+                        column = column.push(new_column);
+                    }
+                }
+            }
+        } else {
+            if let Some(directories) = current_directory.get_directories() {
+                for (key, _) in directories {
+                    if let Some(directory_name) = key.to_str() {
+                        column = column.push(
+                            button(directory_name)
+                                .on_press(Message::SelectDirectory(OsString::from(key))),
                         );
                     }
                 }
@@ -270,7 +319,7 @@ impl Layout {
             }
         }
     }
-
+    // For when all sub directories haven't been read
     fn insert_directory_content_as_dropdown<'a>(
         &'a self,
         current_directory: &'a Directory,
