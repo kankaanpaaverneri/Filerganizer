@@ -371,84 +371,34 @@ impl App {
         &mut self,
         path_to_selected_directory: &PathBuf,
     ) -> std::io::Result<()> {
-        if let Some(last) = path_to_selected_directory.iter().last() {
-            if self.is_directory_name_in_path(last) {
-                if are_paths_equal(&self.path, path_to_selected_directory) {
-                    self.clear_directories_by_path(last);
-                } else {
-                    self.drop_down_directory(path_to_selected_directory, last)?;
-                }
-            } else {
-                self.drop_down_directory(path_to_selected_directory, last)?;
+        println!(
+            "Path to selected directory: {:?}",
+            path_to_selected_directory
+        );
+        if path_to_selected_directory == &self.path {
+            if let Some(dir) = self
+                .root
+                .get_mut_directory_by_path(path_to_selected_directory)
+            {
+                dir.clear_directory_content();
+                self.path.pop();
             }
-        }
-        Ok(())
-    }
-
-    fn drop_down_directory(
-        &mut self,
-        path_to_selected_directory: &PathBuf,
-        last: &OsStr,
-    ) -> std::io::Result<()> {
-        if !are_paths_equal(&self.path, path_to_selected_directory) {
-            self.path = PathBuf::from(path_to_selected_directory);
         } else {
-            self.path.push(last);
-        }
-        if let Err(error) = self.write_directory_to_tree(&PathBuf::from(&self.path)) {
-            if let ErrorKind::NotFound = error.kind() {
-                self.find_directory_from_parents(last)?;
-                self.update_path_input();
-                return Ok(());
-            }
-            self.path.pop();
-            return Err(error);
-        }
-        self.update_path_input();
-        Ok(())
-    }
-
-    fn find_directory_from_parents(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
-        let mut path_stack = PathBuf::new();
-        let original_path = PathBuf::from(&self.path);
-        for path_directory in &original_path {
-            path_stack.push(path_directory);
-            if let Some(current_directory) = self.root.get_mut_directory_by_path(&path_stack) {
-                if let Some(sub_directories) = current_directory.get_directories() {
-                    if let Some(_) = sub_directories.get(directory_name) {
-                        path_stack.push(directory_name);
-                        self.write_directory_to_tree(&PathBuf::from(&path_stack))?;
-                        self.path = PathBuf::from(&path_stack);
-                        self.update_path_input();
+            if path_to_selected_directory.components().count() < self.path.components().count() {
+                while self.path.pop() {
+                    if self.path.components().count()
+                        < path_to_selected_directory.components().count()
+                    {
+                        break;
                     }
                 }
+                return Ok(());
             }
+            self.write_directory_to_tree(path_to_selected_directory)?;
+            self.path = PathBuf::from(path_to_selected_directory);
         }
+
         Ok(())
-    }
-
-    fn clear_directories_by_path(&mut self, selected_directory: &OsStr) {
-        while let Some(last_directory) = self.root.get_mut_directory_by_path(&self.path) {
-            last_directory.clear_directory_content();
-            if let Some(last) = self.path.iter().last() {
-                if last == selected_directory {
-                    self.path.pop();
-                    self.update_path_input();
-                    break;
-                }
-            }
-            self.path.pop();
-            self.update_path_input();
-        }
-    }
-
-    fn is_directory_name_in_path(&self, directory_name: &OsStr) -> bool {
-        for path_directory in &self.path {
-            if directory_name == path_directory {
-                return true;
-            }
-        }
-        false
     }
 
     fn insert_root_directory(&mut self, path: &PathBuf) {

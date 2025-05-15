@@ -434,10 +434,8 @@ impl Layout {
     ) -> Column<'a, Message> {
         let mut path_stack = PathBuf::from(&path_stack);
 
-        if let Some(last) = path_stack.iter().last() {
-            if last != selected_directory_key {
-                path_stack.push(selected_directory_key);
-            }
+        if let Some(_last) = path_stack.iter().last() {
+            path_stack.push(selected_directory_key);
         }
 
         if let Some(key) = selected_directory_key.to_str() {
