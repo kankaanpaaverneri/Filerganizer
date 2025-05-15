@@ -292,6 +292,12 @@ impl App {
                 let mut path = PathBuf::from(&self.path);
                 if let Err(error) = self.write_selected_directory_recursively(&mut path) {
                     self.error = error.to_string();
+                    if let Err(error) = self.write_directories_from_path(&PathBuf::from(&self.path))
+                    {
+                        self.error = error.to_string();
+                    }
+                    self.layout = Layout::DirectorySelectionLayout;
+                    return Ok(());
                 }
                 self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
@@ -495,9 +501,7 @@ impl App {
         path_stack: &mut PathBuf,
     ) -> std::io::Result<()> {
         if let Some(directory) = self.root.get_mut_directory_by_path(path_stack) {
-            if let Err(err) = directory.write_directories_recursive(path_stack) {
-                return Err(err);
-            }
+            directory.write_directories_recursive(path_stack)?;
         }
         Ok(())
     }
