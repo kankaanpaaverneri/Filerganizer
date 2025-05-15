@@ -125,10 +125,13 @@ impl App {
                 }
             },
             Message::SelectPath => {
-                if let Err(error) = self.switch_layout(&Layout::DirectoryOrganizingLayout) {
-                    self.error = error.to_string();
+                match self.switch_layout(&Layout::DirectoryOrganizingLayout) {
+                    Ok(_) => Task::none(),
+                    Err(error) => {
+                        self.error = error.to_string();
+                        return Task::none();
+                    }
                 }
-                Task::none()
             }
             Message::SelectDirectory(path_to_selected_directory) => {
                 if self.directories_selected.is_empty() {
@@ -291,13 +294,7 @@ impl App {
             Layout::DirectoryOrganizingLayout => {
                 let mut path = PathBuf::from(&self.path);
                 if let Err(error) = self.write_selected_directory_recursively(&mut path) {
-                    self.error = error.to_string();
-                    if let Err(error) = self.write_directories_from_path(&PathBuf::from(&self.path))
-                    {
-                        self.error = error.to_string();
-                    }
-                    self.layout = Layout::DirectorySelectionLayout;
-                    return Ok(());
+                    return Err(error);
                 }
                 self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
@@ -392,12 +389,13 @@ impl App {
                         break;
                     }
                 }
+                self.update_path_input();
                 return Ok(());
             }
             self.write_directory_to_tree(path_to_selected_directory)?;
             self.path = PathBuf::from(path_to_selected_directory);
         }
-
+        self.update_path_input();
         Ok(())
     }
 
@@ -451,7 +449,11 @@ impl App {
         path_stack: &mut PathBuf,
     ) -> std::io::Result<()> {
         if let Some(directory) = self.root.get_mut_directory_by_path(path_stack) {
-            directory.write_directories_recursive(path_stack)?;
+            let temp = directory.clone(); // Save copy of directory in case of failure
+            if let Err(error) = directory.write_directories_recursive(path_stack) {
+                *directory = temp;
+                return Err(error);
+            }
         }
         Ok(())
     }
