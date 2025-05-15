@@ -178,13 +178,13 @@ impl Layout {
         let root = app
             .get_root_directory()
             .get_directory_by_path(app.get_path());
-        let path_stack = PathBuf::from(app.get_path());
-        let mut path_component_iter: std::slice::Iter<'_, OsString> =
+        let mut path_stack = PathBuf::from(app.get_path());
+        let mut path_component_iter: std::slice::Iter<'_, PathBuf> =
             app.get_directories_selected().iter();
         column = self.display_directories_as_dropdown(
             app,
             root,
-            &path_stack,
+            &mut path_stack,
             &mut path_component_iter,
             column,
         );
@@ -206,38 +206,44 @@ impl Layout {
         &'a self,
         app: &'a App,
         current_directory: &'a Directory,
-        path_stack: &PathBuf,
-        path_component_iter: &mut std::slice::Iter<'_, OsString>,
+        path_stack: &mut PathBuf,
+        path_component_iter: &mut std::slice::Iter<'_, PathBuf>,
         mut column: Column<'a, Message>,
     ) -> Column<'a, Message> {
-        if let Some(next) = path_component_iter.next() {
-            if let Some(directories) = current_directory.get_directories() {
-                for (key, directory) in directories {
-                    if let Some(directory_name) = key.to_str() {
-                        column = column.push(
-                            button(directory_name)
-                                .on_press(Message::SelectDirectory(OsString::from(key))),
-                        );
-                    }
+        if let Some(next_path) = path_component_iter.next() {
+            if let Some(next_last) = next_path.iter().last() {
+                if let Some(directories) = current_directory.get_directories() {
+                    for (key, directory) in directories {
+                        if let Some(directory_name) = key.to_str() {
+                            path_stack.push(key);
+                            column = column
+                                .push(button(directory_name).on_press(Message::SelectDirectory(
+                                    PathBuf::from(&path_stack),
+                                )));
+                            path_stack.pop();
+                        }
 
-                    if next == key {
-                        let mut new_column = Column::new();
-                        new_column = self.display_directories_as_dropdown(
-                            app,
-                            directory,
-                            path_stack,
-                            path_component_iter,
-                            new_column,
-                        );
-                        new_column = new_column.padding(10);
-                        if let Some(files) = directory.get_files() {
-                            for (key, _file) in files {
-                                if let Some(file_name) = key.to_str() {
-                                    column = column.push(text(file_name))
+                        if next_last == key {
+                            let mut new_column = Column::new();
+                            path_stack.push(key);
+                            new_column = self.display_directories_as_dropdown(
+                                app,
+                                directory,
+                                path_stack,
+                                path_component_iter,
+                                new_column,
+                            );
+                            path_stack.pop();
+                            new_column = new_column.padding(10);
+                            if let Some(files) = directory.get_files() {
+                                for (key, _file) in files {
+                                    if let Some(file_name) = key.to_str() {
+                                        column = column.push(text(file_name))
+                                    }
                                 }
                             }
+                            column = column.push(new_column);
                         }
-                        column = column.push(new_column);
                     }
                 }
             }
@@ -245,11 +251,14 @@ impl Layout {
             if let Some(directories) = current_directory.get_directories() {
                 for (key, _) in directories {
                     if let Some(directory_name) = key.to_str() {
-                        column = column.push(
-                            button(directory_name)
-                                .on_press(Message::SelectDirectory(OsString::from(key))),
-                        );
+                        path_stack.push(key);
+                        column =
+                            column
+                                .push(button(directory_name).on_press(Message::SelectDirectory(
+                                    PathBuf::from(&path_stack),
+                                )));
                     }
+                    path_stack.pop();
                 }
             }
         }
@@ -312,7 +321,6 @@ impl Layout {
                 let root_dir = app.get_root_directory();
                 return column![scrollable(self.insert_directory_content_as_dropdown(
                     root_dir,
-                    &path,
                     &mut path_iter,
                     &mut path_stack,
                 ))];
@@ -323,7 +331,6 @@ impl Layout {
     fn insert_directory_content_as_dropdown<'a>(
         &'a self,
         current_directory: &'a Directory,
-        full_path: &PathBuf,
         full_path_iter: &mut Iter<'_>,
         path_stack: &mut PathBuf,
     ) -> Column<'a, Message> {
@@ -337,7 +344,6 @@ impl Layout {
                             path_stack.push(next);
                             let mut new_column = self.insert_directory_content_as_dropdown(
                                 selected,
-                                full_path,
                                 full_path_iter,
                                 path_stack,
                             );
@@ -353,7 +359,7 @@ impl Layout {
         } else {
             if let Some(directories) = current_directory.get_directories() {
                 for dir_key in directories.keys() {
-                    column = self.insert_drop_down_directories(dir_key, full_path, column);
+                    column = self.insert_drop_down_directories(dir_key, path_stack, column);
                 }
             }
         }
@@ -423,10 +429,10 @@ impl Layout {
     fn insert_drop_down_directories<'a>(
         &'a self,
         selected_directory_key: &'a OsStr,
-        full_path: &PathBuf,
+        path_stack: &PathBuf,
         mut column: Column<'a, Message>,
     ) -> Column<'a, Message> {
-        let mut path_stack = PathBuf::from(&full_path);
+        let mut path_stack = PathBuf::from(&path_stack);
 
         if let Some(last) = path_stack.iter().last() {
             if last != selected_directory_key {

@@ -19,7 +19,7 @@ pub struct App {
     layout: Layout,
     directory_view: DirectoryView,
 
-    directories_selected: Vec<OsString>,
+    directories_selected: Vec<PathBuf>,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
@@ -56,7 +56,7 @@ pub enum Message {
     DropDownDirectory(PathBuf),
 
     SelectPath,
-    SelectDirectory(OsString),
+    SelectDirectory(PathBuf),
     SelectFile(OsString, File),
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
@@ -130,16 +130,25 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SelectDirectory(directory_name) => {
-                if self.directories_selected.contains(&directory_name) {
-                    while let Some(dir) = self.directories_selected.pop() {
-                        if dir == directory_name {
-                            break;
+            Message::SelectDirectory(path_to_selected_directory) => {
+                if self.directories_selected.is_empty() {
+                    self.insert_directory_path_to_selected(path_to_selected_directory);
+                } else {
+                    if let Some(last_path) = self.directories_selected.last() {
+                        if are_paths_equal(last_path, &path_to_selected_directory) {
+                            self.insert_directory_path_to_selected(path_to_selected_directory);
+                        } else {
+                            while let Some(popped) = self.directories_selected.pop() {
+                                if are_paths_equal(&popped, &path_to_selected_directory) {
+                                    self.directories_selected.push(popped);
+                                    break;
+                                }
+                            }
+                            self.insert_directory_path_to_selected(path_to_selected_directory);
                         }
                     }
-                } else {
-                    self.directories_selected.push(directory_name);
                 }
+
                 Task::none()
             }
             Message::SelectFile(file_name, file) => {
@@ -161,7 +170,6 @@ impl App {
                 }
                 if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
                     // Copy selected files to new sub directory
-                    println!("Files selected: {:?}", self.files_selected);
                     selected_directory.insert_new_sub_directory(
                         &self.new_directory_name,
                         self.files_selected.clone(),
@@ -230,7 +238,7 @@ impl App {
         &self.files_selected
     }
 
-    pub fn get_directories_selected(&self) -> &Vec<OsString> {
+    pub fn get_directories_selected(&self) -> &Vec<PathBuf> {
         &self.directories_selected
     }
 
@@ -341,13 +349,25 @@ impl App {
         }
     }
 
+    fn insert_directory_path_to_selected(&mut self, path: PathBuf) {
+        if self.directories_selected.contains(&path) {
+            while let Some(popped) = self.directories_selected.pop() {
+                if path == popped {
+                    break;
+                }
+            }
+        } else {
+            self.directories_selected.push(path);
+        }
+    }
+
     fn select_drop_down_directory(
         &mut self,
         path_to_selected_directory: &PathBuf,
     ) -> std::io::Result<()> {
         if let Some(last) = path_to_selected_directory.iter().last() {
             if self.is_directory_name_in_path(last) {
-                if self.are_paths_equal(path_to_selected_directory) {
+                if are_paths_equal(&self.path, path_to_selected_directory) {
                     self.clear_directories_by_path(last);
                 } else {
                     self.drop_down_directory(path_to_selected_directory, last)?;
@@ -359,24 +379,12 @@ impl App {
         Ok(())
     }
 
-    fn are_paths_equal(&self, path_to_selected_directory: &PathBuf) -> bool {
-        let mut components = path_to_selected_directory.components();
-        for current_path in self.path.iter() {
-            if let Some(component) = components.next() {
-                if component.as_os_str() != current_path {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
     fn drop_down_directory(
         &mut self,
         path_to_selected_directory: &PathBuf,
         last: &OsStr,
     ) -> std::io::Result<()> {
-        if !self.are_paths_equal(path_to_selected_directory) {
+        if !are_paths_equal(&self.path, path_to_selected_directory) {
             self.path = PathBuf::from(path_to_selected_directory);
         } else {
             self.path.push(last);
@@ -530,4 +538,16 @@ impl App {
             self.path_input = String::from(path_str);
         }
     }
+}
+
+fn are_paths_equal(path1: &PathBuf, path2: &PathBuf) -> bool {
+    let mut components = path2.components();
+    for current_path in path1.iter() {
+        if let Some(component) = components.next() {
+            if component.as_os_str() != current_path {
+                return false;
+            }
+        }
+    }
+    true
 }
