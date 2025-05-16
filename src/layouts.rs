@@ -159,9 +159,14 @@ impl Layout {
 
     fn insert_files_selected<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let mut column = Column::new();
+        let mut path_stack = PathBuf::from(app.get_path());
         for (key, _) in app.get_files_selected() {
             if let Some(file_name) = key.to_str() {
-                column = column.push(text(file_name));
+                path_stack.push(key);
+                column = column.push(
+                    button(file_name).on_press(Message::SelectFile(PathBuf::from(&path_stack))),
+                );
+                path_stack.pop();
             }
         }
         column = column.push(row![
@@ -189,13 +194,15 @@ impl Layout {
             column,
         );
         if let Some(files) = root.get_files() {
-            for (key, file) in files {
+            for key in files.keys() {
                 if let Some(file_name) = key.to_str() {
+                    path_stack.push(key);
                     column = column.push(
                         button(file_name)
                             .style(file_button_style)
-                            .on_press(Message::SelectFile(OsString::from(&key), file.clone())),
-                    )
+                            .on_press(Message::SelectFile(PathBuf::from(&path_stack))),
+                    );
+                    path_stack.pop();
                 }
             }
         }

@@ -57,7 +57,7 @@ pub enum Message {
 
     SelectPath,
     SelectDirectory(PathBuf),
-    SelectFile(OsString, File),
+    SelectFile(PathBuf),
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
     CheckboxToggled(bool, usize),
@@ -124,15 +124,13 @@ impl App {
                     Task::none()
                 }
             },
-            Message::SelectPath => {
-                match self.switch_layout(&Layout::DirectoryOrganizingLayout) {
-                    Ok(_) => Task::none(),
-                    Err(error) => {
-                        self.error = error.to_string();
-                        return Task::none();
-                    }
+            Message::SelectPath => match self.switch_layout(&Layout::DirectoryOrganizingLayout) {
+                Ok(_) => Task::none(),
+                Err(error) => {
+                    self.error = error.to_string();
+                    return Task::none();
                 }
-            }
+            },
             Message::SelectDirectory(path_to_selected_directory) => {
                 if self.directories_selected.is_empty() {
                     self.insert_directory_path_to_selected(path_to_selected_directory);
@@ -154,13 +152,25 @@ impl App {
 
                 Task::none()
             }
-            Message::SelectFile(file_name, file) => {
-                if let Some(_) = self.files_selected.get(&file_name) {
-                    self.files_selected.remove(&file_name);
-                } else {
-                    self.files_selected.insert(file_name, file);
+            Message::SelectFile(file_path) => {
+                if let Some(directory) = self.root.get_mut_directory_by_path(&self.path) {
+                    if let Some(files) = directory.get_mut_files() {
+                        if let Some(file_name) = file_path.iter().last() {
+                            if self.files_selected.contains_key(file_name) {
+                                if let Some((key, value)) =
+                                    self.files_selected.remove_entry(file_name)
+                                {
+                                    files.insert(key, value);
+                                }
+                            } else {
+                                if let Some((key, value)) = files.remove_entry(file_name) {
+                                    self.files_selected.insert(key, value);
+                                }
+                            }
+                        }
+                    }
                 }
-                Task::none()
+                return Task::none();
             }
 
             Message::InputNewDirectoryName(input) => {
