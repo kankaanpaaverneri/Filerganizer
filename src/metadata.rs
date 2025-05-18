@@ -11,6 +11,13 @@ pub struct Metadata {
     readonly: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateType {
+    Created,
+    Accessed,
+    Modified,
+}
+
 impl Metadata {
     pub fn new() -> Self {
         Self {
@@ -20,6 +27,32 @@ impl Metadata {
             modified: None,
             size: None,
             readonly: false,
+        }
+    }
+
+    pub fn get_formated_date(&self, date_type: DateType) -> Option<String> {
+        match date_type {
+            DateType::Created => {
+                if let Some(created) = self.created {
+                    let formated = created.format("%Y%m%d").to_string();
+                    return Some(formated);
+                }
+                None
+            }
+            DateType::Accessed => {
+                if let Some(accessed) = self.accessed {
+                    let formated = accessed.format("%Y%m%d").to_string();
+                    return Some(formated);
+                }
+                None
+            }
+            DateType::Modified => {
+                if let Some(modified) = self.accessed {
+                    let formated = modified.format("%Y%m%d").to_string();
+                    return Some(formated);
+                }
+                None
+            }
         }
     }
 

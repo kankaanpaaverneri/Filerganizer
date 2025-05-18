@@ -24,14 +24,14 @@ impl Directory {
     pub fn insert_new_sub_directory(
         &mut self,
         directory_name: &str,
-        files: BTreeMap<OsString, File>,
+        directories: BTreeMap<OsString, Directory>,
     ) {
         if let Some(sub_directories) = &mut self.directories {
             sub_directories.insert(
                 OsString::from(directory_name),
                 Directory {
-                    directories: None,
-                    files: Some(files),
+                    directories: Some(directories),
+                    files: None,
                     metadata: Some(Metadata::build(
                         Some(OsString::from(directory_name)),
                         None,
@@ -43,6 +43,28 @@ impl Directory {
                 },
             );
         }
+    }
+
+    pub fn insert_file(&mut self, file_name: OsString, file: File) {
+        if let Some(mut files) = self.files.take() {
+            files.insert(file_name, file);
+            self.files = Some(files);
+        } else {
+            let mut files = BTreeMap::new();
+            files.insert(file_name, file);
+            let _result = self.files.insert(files);
+        }
+    }
+
+    pub fn insert_directory(&mut self, new_directory: Directory, directory_name: &str) {
+        if let Some(mut directories) = self.directories.take() {
+            directories.insert(OsString::from(directory_name), new_directory);
+            self.directories = Some(directories);
+        }
+    }
+
+    pub fn insert_directories(&mut self, directories: BTreeMap<OsString, Directory>) {
+        self.directories = Some(directories);
     }
 
     pub fn read_path(
@@ -274,4 +296,142 @@ fn identify_prefix(path: &PathBuf) -> String {
         })
         .collect();
     first_two_components.join("/")
+}
+
+pub mod organizing {
+    use crate::directory::Directory;
+    use crate::file::File;
+    use crate::metadata::DateType;
+    use std::collections::BTreeMap;
+    use std::ffi::OsString;
+
+    fn get_file_types(files_selected: &BTreeMap<OsString, File>) -> BTreeMap<OsString, Directory> {
+        let mut file_types: BTreeMap<OsString, Directory> = BTreeMap::new();
+        for key in files_selected.keys() {
+            if let Some(file_name) = key.to_str() {
+                let file_name = String::from(file_name);
+                let splitted: Vec<_> = file_name.split(".").collect();
+                if let Some(file_type) = splitted.last() {
+                    file_types.insert(OsString::from(file_type), Directory::new(None));
+                }
+            }
+        }
+        file_types
+    }
+
+    fn get_file_dates(
+        files_selected: &BTreeMap<OsString, File>,
+        date_type: DateType,
+    ) -> BTreeMap<OsString, Directory> {
+        let mut file_dates: BTreeMap<OsString, Directory> = BTreeMap::new();
+        for (_key, file) in files_selected {
+            if let Some(metadata) = file.get_metadata() {
+                if let Some(formatted) = metadata.get_formated_date(date_type) {
+                    file_dates.insert(OsString::from(&formatted), Directory::new(None));
+                }
+            }
+        }
+        file_dates
+    }
+
+    pub fn sort_files_by_file_type(
+        files_selected: BTreeMap<OsString, File>,
+        insert_directory_name_to_file_name: bool,
+        insert_date_to_file_name: bool,
+        new_directory_name: &str,
+        date_type_selected: Option<DateType>,
+    ) -> BTreeMap<OsString, Directory> {
+        let mut file_type_directories = get_file_types(&files_selected);
+
+        for (key, file) in files_selected {
+            if let Some(file_name) = key.to_str() {
+                let splitted: Vec<_> = file_name.split(".").collect();
+                if let Some(file_type) = splitted.last() {
+                    if let Some(dir) = file_type_directories.get_mut(&OsString::from(file_type)) {
+                        let mut renamed_file_name = String::new();
+                        rename_file_name(
+                            &mut renamed_file_name,
+                            insert_date_to_file_name,
+                            insert_directory_name_to_file_name,
+                            new_directory_name,
+                            &file,
+                            date_type_selected,
+                        );
+                        renamed_file_name.push_str(file_name);
+                        dir.insert_file(OsString::from(renamed_file_name), file);
+                    }
+                }
+            }
+        }
+        file_type_directories
+    }
+
+    pub fn sort_files_by_date(
+        files_selected: BTreeMap<OsString, File>,
+        insert_directory_name_to_file_name: bool,
+        insert_date_to_file_name: bool,
+        new_directory_name: &str,
+        date_type_selected: DateType,
+    ) -> BTreeMap<OsString, Directory> {
+        let mut file_date_directories = get_file_dates(&files_selected, date_type_selected);
+        for (key, file) in files_selected {
+            if let Some(file_name) = key.to_str() {
+                if let Some(metadata) = file.get_metadata() {
+                    if let Some(formatted) = metadata.get_formated_date(date_type_selected) {
+                        let mut renamed_file_name = String::new();
+                        rename_file_name(
+                            &mut renamed_file_name,
+                            insert_date_to_file_name,
+                            insert_directory_name_to_file_name,
+                            new_directory_name,
+                            &file,
+                            Some(date_type_selected),
+                        );
+                        renamed_file_name.push_str(file_name);
+                        if let Some(dir) = file_date_directories.get_mut(&OsString::from(formatted))
+                        {
+                            dir.insert_file(OsString::from(renamed_file_name), file);
+                        }
+                    }
+                }
+            }
+        }
+        file_date_directories
+    }
+
+    pub fn rename_file_name(
+        renamed_file_name: &mut String,
+        insert_date_to_file_name: bool,
+        insert_directory_name_to_file_name: bool,
+        new_directory_name: &str,
+        file: &File,
+        date_type_selected: Option<DateType>,
+    ) {
+        if let Some(date_type) = date_type_selected {
+            if insert_date_to_file_name {
+                if let Some(metadata) = file.get_metadata() {
+                    if let Some(formatted) = metadata.get_formated_date(date_type) {
+                        renamed_file_name.push_str(formatted.as_str());
+                        renamed_file_name.push('_');
+                    }
+                }
+            }
+        }
+        if insert_directory_name_to_file_name {
+            renamed_file_name.push_str(new_directory_name);
+            renamed_file_name.push('_');
+        }
+    }
+
+    pub fn is_directory_name_unique(
+        new_directory_name: &str,
+        directories: &BTreeMap<OsString, Directory>,
+    ) -> bool {
+        for key in directories.keys() {
+            if OsString::from(new_directory_name) == *key {
+                return false;
+            }
+        }
+        true
+    }
 }

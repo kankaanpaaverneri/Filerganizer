@@ -6,9 +6,13 @@ use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
+use crate::directory::organizing::{
+    is_directory_name_unique, rename_file_name, sort_files_by_date, sort_files_by_file_type,
+};
 use crate::directory::Directory;
 use crate::file::File;
 use crate::layouts::{CheckboxStates, DirectoryView, Layout};
+use crate::metadata::DateType;
 
 pub struct App {
     path: PathBuf,
@@ -23,6 +27,7 @@ pub struct App {
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
+    date_type_selected: Option<DateType>,
 }
 
 impl Default for App {
@@ -40,6 +45,7 @@ impl Default for App {
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
+            date_type_selected: None,
         }
     }
 }
@@ -61,6 +67,7 @@ pub enum Message {
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
     CheckboxToggled(bool, usize),
+    DateTypeSelected(DateType),
     Exit,
 }
 
@@ -178,27 +185,133 @@ impl App {
                 Task::none()
             }
             Message::CreateDirectoryWithSelectedFiles => {
+                // Clean this Message
+                // Start to implement directory unzipping
                 if self.files_selected.is_empty() {
+                    self.error =
+                        std::io::Error::new(ErrorKind::NotFound, "No files selected.").to_string();
                     return Task::none();
                 }
+                if self.new_directory_name.is_empty() {
+                    self.error = std::io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "Directory name not specified.",
+                    )
+                    .to_string();
+                    return Task::none();
+                }
+                // Copy all files_selected
+                let mut files_selected = BTreeMap::new();
+                while let Some((key, value)) = self.files_selected.pop_last() {
+                    files_selected.insert(key, value);
+                }
                 if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
-                    // Copy selected files to new sub directory
-                    selected_directory.insert_new_sub_directory(
-                        &self.new_directory_name,
-                        self.files_selected.clone(),
-                    );
-                    // Remove old files from this directory
-                    if let Some(files) = selected_directory.get_mut_files() {
-                        for (key, _file) in &self.files_selected {
-                            if files.contains_key(key) {
-                                files.remove(key);
-                            }
+                    if let Some(directories) = selected_directory.get_directories() {
+                        if !is_directory_name_unique(&self.new_directory_name, directories) {
+                            self.error = std::io::Error::new(
+                                ErrorKind::AlreadyExists,
+                                "Directory name already exists.",
+                            )
+                            .to_string();
+                            return Task::none();
                         }
                     }
-                    self.files_selected.clear(); // Clear selection
-                    self.new_directory_name.clear(); // Clear input field
-                }
 
+                    let CheckboxStates {
+                        organize_by_filetype,
+                        organize_by_date,
+                        insert_date_to_file_name,
+                        insert_directory_name_to_file_name,
+                    } = self.checkbox_states;
+                    // If both organize_by_file_type and date are checked
+                    if organize_by_filetype && organize_by_date {
+                        match organize_files_by_file_type_and_date(
+                            &files_selected,
+                            insert_directory_name_to_file_name,
+                            insert_date_to_file_name,
+                            &self.new_directory_name,
+                            self.date_type_selected,
+                        ) {
+                            Ok(directories_by_file_type_and_date) => {
+                                selected_directory.insert_new_sub_directory(
+                                    &self.new_directory_name,
+                                    directories_by_file_type_and_date,
+                                );
+                                files_selected.clear();
+                                self.new_directory_name.clear();
+                            }
+                            Err(error) => self.handle_checkbox_error(error, files_selected),
+                        }
+                    } else if self.checkbox_states.organize_by_filetype {
+                        match organize_by_file_type(
+                            &files_selected,
+                            insert_directory_name_to_file_name,
+                            insert_date_to_file_name,
+                            &self.new_directory_name,
+                            self.date_type_selected,
+                        ) {
+                            Ok(directories_by_file_type) => {
+                                selected_directory.insert_new_sub_directory(
+                                    &self.new_directory_name,
+                                    directories_by_file_type,
+                                );
+                                files_selected.clear();
+                                self.new_directory_name.clear();
+                            }
+                            Err(error) => self.handle_checkbox_error(error, files_selected),
+                        }
+                    } else if self.checkbox_states.organize_by_date {
+                        // If only organize_by_date is checked
+                        match organize_to_directories_by_date(
+                            &files_selected,
+                            insert_directory_name_to_file_name,
+                            insert_date_to_file_name,
+                            &self.new_directory_name,
+                            self.date_type_selected,
+                        ) {
+                            Ok(directories_by_date) => {
+                                selected_directory.insert_new_sub_directory(
+                                    &self.new_directory_name,
+                                    directories_by_date,
+                                );
+                                files_selected.clear();
+                                self.new_directory_name.clear();
+                            }
+                            Err(error) => self.handle_checkbox_error(error, files_selected),
+                        }
+                    } else if self.checkbox_states.insert_directory_name_to_file_name
+                        || self.checkbox_states.insert_date_to_file_name
+                    {
+                        match rename_and_organize_to_directory(
+                            &files_selected,
+                            insert_directory_name_to_file_name,
+                            insert_date_to_file_name,
+                            &self.new_directory_name,
+                            self.date_type_selected,
+                        ) {
+                            Ok(new_directory) => {
+                                selected_directory
+                                    .insert_directory(new_directory, &self.new_directory_name);
+                                files_selected.clear();
+                                self.new_directory_name.clear();
+                            }
+                            Err(error) => self.handle_checkbox_error(error, files_selected),
+                        }
+                    } else if !organize_by_filetype
+                        && !organize_by_filetype
+                        && !insert_date_to_file_name
+                        && !insert_directory_name_to_file_name
+                    {
+                        // If none are checked
+                        let mut new_directory = Directory::new(None);
+                        for (key, value) in files_selected {
+                            new_directory.insert_file(key, value);
+                        }
+                        selected_directory
+                            .insert_directory(new_directory, &self.new_directory_name);
+                        return Task::none();
+                    }
+                }
                 Task::none()
             }
             Message::CheckboxToggled(toggle, id) => match id {
@@ -220,6 +333,10 @@ impl App {
                 }
                 _ => Task::none(),
             },
+            Message::DateTypeSelected(date_type) => {
+                self.date_type_selected = Some(date_type);
+                Task::none()
+            }
             Message::Exit => iced::exit(),
         }
     }
@@ -261,6 +378,10 @@ impl App {
 
     pub fn get_checkbox_states(&self) -> &CheckboxStates {
         &self.checkbox_states
+    }
+
+    pub fn get_date_type_selected(&self) -> Option<DateType> {
+        self.date_type_selected
     }
 
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
@@ -378,10 +499,6 @@ impl App {
         &mut self,
         path_to_selected_directory: &PathBuf,
     ) -> std::io::Result<()> {
-        println!(
-            "Path to selected directory: {:?}",
-            path_to_selected_directory
-        );
         if path_to_selected_directory == &self.path {
             if let Some(dir) = self
                 .root
@@ -504,6 +621,17 @@ impl App {
             self.path_input = String::from(path_str);
         }
     }
+
+    fn handle_checkbox_error(
+        &mut self,
+        error: std::io::Error,
+        files_selected: BTreeMap<OsString, File>,
+    ) {
+        self.error = error.to_string();
+        for (key, value) in files_selected {
+            self.files_selected.insert(key, value);
+        }
+    }
 }
 
 fn are_paths_equal(path1: &PathBuf, path2: &PathBuf) -> bool {
@@ -516,4 +644,121 @@ fn are_paths_equal(path1: &PathBuf, path2: &PathBuf) -> bool {
         }
     }
     true
+}
+
+fn organize_files_by_file_type_and_date(
+    files_selected: &BTreeMap<OsString, File>,
+    insert_directory_name_to_file_name: bool,
+    insert_date_to_file_name: bool,
+    new_directory_name: &str,
+    date_type: Option<DateType>,
+) -> std::io::Result<BTreeMap<OsString, Directory>> {
+    if let Some(date_type_selected) = date_type {
+        let mut directories_by_file_type = sort_files_by_file_type(
+            files_selected.clone(),
+            insert_directory_name_to_file_name,
+            insert_date_to_file_name,
+            new_directory_name,
+            Some(date_type_selected),
+        );
+
+        for (_, value) in &mut directories_by_file_type {
+            if let Some(files) = value.get_mut_files().take() {
+                let directories_by_date =
+                    sort_files_by_date(files, false, false, new_directory_name, date_type_selected);
+                value.insert_directories(directories_by_date);
+            }
+        }
+        Ok(directories_by_file_type)
+    } else {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidInput,
+            "Date type not specified.",
+        ));
+    }
+}
+
+fn organize_by_file_type(
+    files_selected: &BTreeMap<OsString, File>,
+    insert_directory_name_to_file_name: bool,
+    insert_date_to_file_name: bool,
+    new_directory_name: &str,
+    date_type_selected: Option<DateType>,
+) -> std::io::Result<BTreeMap<OsString, Directory>> {
+    // If only organize_by_file_type is checked
+    if let None = date_type_selected {
+        if insert_date_to_file_name {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "Date type not specified.",
+            ));
+        }
+    }
+    let file_type_directories = sort_files_by_file_type(
+        files_selected.clone(),
+        insert_directory_name_to_file_name,
+        insert_date_to_file_name,
+        &new_directory_name,
+        date_type_selected,
+    );
+    Ok(file_type_directories)
+}
+
+fn organize_to_directories_by_date(
+    files_selected: &BTreeMap<OsString, File>,
+    insert_directory_name_to_file_name: bool,
+    insert_date_to_file_name: bool,
+    new_directory_name: &str,
+    date_type_selected: Option<DateType>,
+) -> std::io::Result<BTreeMap<OsString, Directory>> {
+    if let Some(date_type_selected) = date_type_selected {
+        let directories_by_date = sort_files_by_date(
+            files_selected.clone(),
+            insert_directory_name_to_file_name,
+            insert_date_to_file_name,
+            new_directory_name,
+            date_type_selected,
+        );
+        Ok(directories_by_date)
+    } else {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidInput,
+            "Date type not specified.",
+        ));
+    }
+}
+
+fn rename_and_organize_to_directory(
+    files_selected: &BTreeMap<OsString, File>,
+    insert_directory_name_to_file_name: bool,
+    insert_date_to_file_name: bool,
+    new_directory_name: &str,
+    date_type_selected: Option<DateType>,
+) -> std::io::Result<Directory> {
+    if let None = date_type_selected {
+        if insert_date_to_file_name {
+            return Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "No date type specified",
+            ));
+        }
+    }
+    // If only renaming are checked
+    let mut new_directory = Directory::new(None);
+    for (key, file) in files_selected.clone() {
+        if let Some(file_name) = key.to_str() {
+            let mut renamed_file_name = String::new();
+            rename_file_name(
+                &mut renamed_file_name,
+                insert_date_to_file_name,
+                insert_directory_name_to_file_name,
+                new_directory_name,
+                &file,
+                date_type_selected,
+            );
+            renamed_file_name.push_str(file_name);
+            new_directory.insert_file(OsString::from(renamed_file_name), file);
+        }
+    }
+    Ok(new_directory)
 }

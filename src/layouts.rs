@@ -6,8 +6,8 @@ use std::{
 
 use iced::{
     widget::{
-        button, checkbox, column, container, row, scrollable, text, text_input, Column, Container,
-        Row,
+        button, checkbox, column, container, radio, row, scrollable, text, text_input, Column,
+        Container, Row,
     },
     Background, Color,
     Length::{Fill, FillPortion},
@@ -17,8 +17,9 @@ use iced::{
 use crate::{
     app::{App, Message},
     directory::Directory,
-    metadata::Metadata,
+    metadata::{DateType, Metadata},
 };
+
 pub struct CheckboxStates {
     pub organize_by_filetype: bool,
     pub organize_by_date: bool,
@@ -113,6 +114,7 @@ impl Layout {
                 row![text("Selected path: "), text(path)]
                     .spacing(5)
                     .padding(10),
+                column![text(app.get_error())],
                 row![
                     scrollable(self.display_selected_path_content(app)),
                     column![
@@ -130,6 +132,24 @@ impl Layout {
     }
 
     fn rules_for_directory(&self, app: &App) -> Column<Message> {
+        let created = radio(
+            "Created",
+            DateType::Created,
+            app.get_date_type_selected(),
+            Message::DateTypeSelected,
+        );
+        let accessed = radio(
+            "Accessed",
+            DateType::Accessed,
+            app.get_date_type_selected(),
+            Message::DateTypeSelected,
+        );
+        let modified = radio(
+            "Accessed",
+            DateType::Modified,
+            app.get_date_type_selected(),
+            Message::DateTypeSelected,
+        );
         column![
             text("Rules"),
             column![
@@ -143,6 +163,7 @@ impl Layout {
                     app.get_checkbox_states().organize_by_date
                 )
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 2) }),
+                column![text("Datetype"), created, accessed, modified].padding(10),
                 checkbox(
                     "Insert date to file name",
                     app.get_checkbox_states().insert_date_to_file_name
@@ -153,7 +174,7 @@ impl Layout {
                     app.get_checkbox_states().insert_directory_name_to_file_name
                 )
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
-            ]
+            ],
         ]
     }
 
