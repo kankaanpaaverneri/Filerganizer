@@ -117,11 +117,15 @@ impl Layout {
                 column![text(app.get_error())],
                 row![
                     scrollable(self.display_selected_path_content(app)),
-                    column![
-                        text("Selected files"),
-                        self.insert_files_selected(app),
-                        self.rules_for_directory(app)
-                    ]
+                    scrollable(
+                        column![
+                            text("Selected files"),
+                            self.insert_files_selected(app),
+                            self.rules_for_directory(app),
+                            self.selected_directory_option(app)
+                        ]
+                        .padding(10)
+                    )
                     .spacing(5)
                 ]
                 .spacing(5)
@@ -176,6 +180,25 @@ impl Layout {
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
             ],
         ]
+    }
+
+    fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let mut column = Column::new();
+        let directories_selected = app.get_directories_selected();
+        if let Some(directory_path) = directories_selected.last() {
+            if let Some(last_component) = directory_path.iter().last() {
+                if let Some(dir_name) = last_component.to_str() {
+                    column = column.push("Selected directory");
+                    column = column.push(text(dir_name));
+                    column = column.push(button("Extract directory content").on_press(
+                        Message::ExtractContentFromDirectory(PathBuf::from(directory_path)),
+                    ));
+                    column = column.push(button("Extract all"));
+                    column = column.padding(10).spacing(10);
+                }
+            }
+        }
+        column
     }
 
     fn insert_files_selected<'a>(&'a self, app: &'a App) -> Column<'a, Message> {

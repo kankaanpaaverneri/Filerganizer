@@ -68,6 +68,7 @@ pub enum Message {
     CreateDirectoryWithSelectedFiles,
     CheckboxToggled(bool, usize),
     DateTypeSelected(DateType),
+    ExtractContentFromDirectory(PathBuf),
     Exit,
 }
 
@@ -335,6 +336,67 @@ impl App {
             },
             Message::DateTypeSelected(date_type) => {
                 self.date_type_selected = Some(date_type);
+                Task::none()
+            }
+            Message::ExtractContentFromDirectory(path_to_selected_directory) => {
+                let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
+                if path_to_parent_directory.pop() {
+                    // Check before continuing that the parent and selected directory do not have duplicate keys
+                    if self.directories_have_duplicate_directories(
+                        &path_to_selected_directory,
+                        &path_to_parent_directory,
+                    ) || self.directories_have_duplicate_files(
+                        &path_to_selected_directory,
+                        &path_to_parent_directory,
+                    ) {
+                        self.error = std::io::Error::new(
+                            ErrorKind::InvalidData,
+                            "No duplicates allowed in same directory",
+                        )
+                        .to_string();
+                        return Task::none();
+                    }
+                    let mut files_holder = BTreeMap::new();
+                    let mut directories_holder = BTreeMap::new();
+                    if let Some(selected_dir) = self
+                        .root
+                        .get_mut_directory_by_path(&path_to_selected_directory)
+                    {
+                        if let Some(files) = selected_dir.get_mut_files().take() {
+                            for (key, value) in files {
+                                files_holder.insert(key, value);
+                            }
+                        }
+                        if let Some(directories) = selected_dir.get_mut_directories().take() {
+                            for (key, value) in directories {
+                                directories_holder.insert(key, value);
+                            }
+                        }
+                    }
+
+                    let mut selected_directory_name = None;
+                    if let Some(last) = path_to_selected_directory.iter().last() {
+                        selected_directory_name = Some(OsString::from(last));
+                    }
+                    if let Some(parent_dir) = self
+                        .root
+                        .get_mut_directory_by_path(&path_to_parent_directory)
+                    {
+                        for (file_name, file) in files_holder {
+                            parent_dir.insert_file(file_name, file);
+                        }
+                        for (dir_name, directory) in directories_holder {
+                            if let Some(directory_name_str) = dir_name.to_str() {
+                                parent_dir.insert_directory(directory, directory_name_str);
+                            }
+                        }
+                        if let Some(directory_name) = selected_directory_name {
+                            parent_dir.remove_sub_directory(directory_name.as_os_str());
+                            self.directories_selected.pop();
+                        }
+                    }
+                }
+
                 Task::none()
             }
             Message::Exit => iced::exit(),
@@ -631,6 +693,44 @@ impl App {
         for (key, value) in files_selected {
             self.files_selected.insert(key, value);
         }
+    }
+
+    fn directories_have_duplicate_directories(
+        &self,
+        path_to_selected_directory: &PathBuf,
+        path_to_parent_directory: &PathBuf,
+    ) -> bool {
+        let selected_dir = self.root.get_directory_by_path(&path_to_selected_directory);
+        if let Some(selected_directories) = selected_dir.get_directories() {
+            let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
+            if let Some(parent_directories) = parent_dir.get_directories() {
+                for key in selected_directories.keys() {
+                    if parent_directories.contains_key(key) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn directories_have_duplicate_files(
+        &self,
+        path_to_selected_directory: &PathBuf,
+        path_to_parent_directory: &PathBuf,
+    ) -> bool {
+        let selected_dir = self.root.get_directory_by_path(&path_to_selected_directory);
+        if let Some(selected_files) = selected_dir.get_files() {
+            let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
+            if let Some(parent_files) = parent_dir.get_files() {
+                for key in selected_files.keys() {
+                    if parent_files.contains_key(key) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 

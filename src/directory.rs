@@ -155,8 +155,18 @@ impl Directory {
         Ok(())
     }
 
+    pub fn remove_sub_directory(&mut self, directory_name: &OsStr) {
+        if let Some(directories) = &mut self.directories {
+            directories.remove(directory_name);
+        }
+    }
+
     pub fn get_directories(&self) -> &Option<BTreeMap<OsString, Directory>> {
         &self.directories
+    }
+
+    pub fn get_mut_directories(&mut self) -> &mut Option<BTreeMap<OsString, Directory>> {
+        &mut self.directories
     }
 
     pub fn get_files(&self) -> &Option<BTreeMap<OsString, File>> {
