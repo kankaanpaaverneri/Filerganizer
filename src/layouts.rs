@@ -5,6 +5,7 @@ use std::{
 };
 
 use iced::{
+    alignment::{Horizontal, Vertical},
     widget::{
         button, checkbox, column, container, radio, row, scrollable, text, text_input, Column,
         Container, Row,
@@ -111,21 +112,27 @@ impl Layout {
     fn directory_organizing_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
         if let Some(path) = app.get_path().to_str() {
             container(column![
-                row![text("Selected path: "), text(path)]
-                    .spacing(5)
-                    .padding(10),
+                row![
+                    column![text("Selected path: "), text(path)]
+                        .width(FillPortion(1))
+                        .align_x(Horizontal::Left),
+                    column![button("Commit")]
+                        .width(FillPortion(1))
+                        .align_x(Horizontal::Right),
+                ]
+                .align_y(Vertical::Center),
                 column![text(app.get_error())],
                 row![
-                    scrollable(self.display_selected_path_content(app)),
+                    scrollable(self.display_selected_path_content(app)).width(FillPortion(2)),
                     scrollable(
                         column![
-                            text("Selected files"),
+                            self.selected_directory_option(app),
                             self.insert_files_selected(app),
                             self.rules_for_directory(app),
-                            self.selected_directory_option(app)
                         ]
                         .padding(10)
                     )
+                    .width(FillPortion(2))
                     .spacing(5)
                 ]
                 .spacing(5)
@@ -180,6 +187,8 @@ impl Layout {
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
             ],
         ]
+        .spacing(10)
+        .padding(10)
     }
 
     fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
@@ -188,12 +197,18 @@ impl Layout {
         if let Some(directory_path) = directories_selected.last() {
             if let Some(last_component) = directory_path.iter().last() {
                 if let Some(dir_name) = last_component.to_str() {
-                    column = column.push("Selected directory");
-                    column = column.push(text(dir_name));
+                    let row = row![
+                        text("Selected directory").size(15),
+                        button(dir_name).style(directory_button_style)
+                    ]
+                    .spacing(5)
+                    .align_y(Vertical::Center);
+                    column = column.push(row);
                     column = column.push(button("Extract directory content").on_press(
                         Message::ExtractContentFromDirectory(PathBuf::from(directory_path)),
                     ));
                     column = column.push(button("Extract all"));
+                    column = column.push(button("Insert selected files to selected directory"));
                     column = column.padding(10).spacing(10);
                 }
             }
@@ -203,22 +218,30 @@ impl Layout {
 
     fn insert_files_selected<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let mut column = Column::new();
+
         let mut path_stack = PathBuf::from(app.get_path());
-        for (key, _) in app.get_files_selected() {
+        for (i, (key, _)) in app.get_files_selected().iter().enumerate() {
+            if i == 0 {
+                column = column.push(row![
+                    text_input("New directory name", app.get_new_directory_input())
+                        .on_input(Message::InputNewDirectoryName),
+                    button("Create directory with selected items")
+                        .on_press(Message::CreateDirectoryWithSelectedFiles),
+                ]);
+                column = column.push(text("Selected files").size(15));
+            }
             if let Some(file_name) = key.to_str() {
                 path_stack.push(key);
                 column = column.push(
-                    button(file_name).on_press(Message::SelectFile(PathBuf::from(&path_stack))),
+                    button(file_name)
+                        .style(file_button_style)
+                        .on_press(Message::SelectFile(PathBuf::from(&path_stack))),
                 );
                 path_stack.pop();
             }
         }
-        column = column.push(row![
-            text_input("New directory name", app.get_new_directory_input())
-                .on_input(Message::InputNewDirectoryName),
-            button("Create directory with selected items")
-                .on_press(Message::CreateDirectoryWithSelectedFiles),
-        ]);
+        column = column.spacing(10).padding(10);
+
         column
     }
 
@@ -250,6 +273,7 @@ impl Layout {
                 }
             }
         }
+        column = column.padding(10).spacing(10);
         column
     }
     // For when all sub directories are already read
@@ -267,10 +291,11 @@ impl Layout {
                     for (key, directory) in directories {
                         if let Some(directory_name) = key.to_str() {
                             path_stack.push(key);
-                            column = column
-                                .push(button(directory_name).on_press(Message::SelectDirectory(
-                                    PathBuf::from(&path_stack),
-                                )));
+                            column = column.push(
+                                button(directory_name)
+                                    .style(directory_button_style)
+                                    .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
+                            );
                             path_stack.pop();
                         }
 
@@ -285,7 +310,7 @@ impl Layout {
                                 new_column,
                             );
                             path_stack.pop();
-                            new_column = new_column.padding(10);
+                            new_column = new_column.padding(20).spacing(10);
                             if let Some(files) = directory.get_files() {
                                 for (key, _file) in files {
                                     if let Some(file_name) = key.to_str() {
@@ -303,11 +328,11 @@ impl Layout {
                 for (key, _) in directories {
                     if let Some(directory_name) = key.to_str() {
                         path_stack.push(key);
-                        column =
-                            column
-                                .push(button(directory_name).on_press(Message::SelectDirectory(
-                                    PathBuf::from(&path_stack),
-                                )));
+                        column = column.push(
+                            button(directory_name)
+                                .style(directory_button_style)
+                                .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
+                        );
                     }
                     path_stack.pop();
                 }

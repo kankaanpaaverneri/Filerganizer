@@ -209,11 +209,13 @@ impl App {
                 if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
                     if let Some(directories) = selected_directory.get_directories() {
                         if !is_directory_name_unique(&self.new_directory_name, directories) {
-                            self.error = std::io::Error::new(
-                                ErrorKind::AlreadyExists,
-                                "Directory name already exists.",
-                            )
-                            .to_string();
+                            self.handle_checkbox_error(
+                                std::io::Error::new(
+                                    ErrorKind::AlreadyExists,
+                                    "Directory name already exists.",
+                                ),
+                                files_selected,
+                            );
                             return Task::none();
                         }
                     }
