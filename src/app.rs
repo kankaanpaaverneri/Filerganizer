@@ -64,8 +64,11 @@ pub enum Message {
     SelectPath,
     SelectDirectory(PathBuf),
     SelectFile(PathBuf),
+    SelectAllFiles,
+    PutAllFilesBack,
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
+    RenameFiles,
     CheckboxToggled(bool, usize),
     DateTypeSelected(DateType),
     ExtractContentFromDirectory(PathBuf),
@@ -190,7 +193,45 @@ impl App {
                 }
                 return Task::none();
             }
+            Message::SelectAllFiles => {
+                let selected_dir = self.root.get_directory_by_path(&self.path);
+                if let Some(files) = selected_dir.get_files() {
+                    for key in files.keys() {
+                        if self.files_selected.contains_key(key) {
+                            self.error = std::io::Error::new(ErrorKind::InvalidInput, "Duplicate file names found").to_string();
+                            return Task::none();
+                        }
+                    }
+                }
 
+                if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
+                    if let Some(files) = selected_dir.get_mut_files() {
+                        while let Some((key, value)) = files.pop_last() {
+                            self.files_selected.insert(key, value);
+                        }
+                    }
+                }
+                return Task::none();
+                
+            }
+            Message::PutAllFilesBack => {
+                let selected_dir = self.root.get_directory_by_path(&self.path);
+                if let Some(files) = selected_dir.get_files() {
+                    for key in self.files_selected.keys() {
+                        if files.contains_key(key) {
+                            self.error = std::io::Error::new(ErrorKind::InvalidInput, "Duplicate file names found").to_string();
+                            return Task::none();
+                        }
+                    }
+                }
+
+                if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
+                    while let Some((key,value)) = self.files_selected.pop_last() {
+                        selected_dir.insert_file(key, value);
+                    }
+                }
+                Task::none()
+            }
             Message::InputNewDirectoryName(input) => {
                 self.new_directory_name = input;
                 Task::none()
@@ -324,6 +365,30 @@ impl App {
                             .insert_directory(new_directory, &self.new_directory_name);
                         return Task::none();
                     }
+                }
+                Task::none()
+            }
+            Message::RenameFiles => {
+                let insert_date_to_file_name = self.checkbox_states.insert_date_to_file_name;
+
+                if let Some(date_type) = self.date_type_selected {
+                    if insert_date_to_file_name {
+                        if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
+
+                            while let Some((key, value)) = self.files_selected.pop_last() {
+                                if let Some(file_name) = key.to_str() {
+                                    let mut renamed_file_name = String::new();
+                                    rename_file_name(&mut renamed_file_name, insert_date_to_file_name, false, &self.new_directory_name, &value, Some(date_type));
+                                    renamed_file_name.push_str(file_name);
+                                    selected_dir.insert_file(OsString::from(renamed_file_name), value);
+                                }
+                            }
+                        }
+                    } else {
+                        self.error = std::io::Error::new(ErrorKind::NotFound, "No rename options specified").to_string();
+                    }
+                } else {
+                    self.error = std::io::Error::new(ErrorKind::NotFound, "No date type specified").to_string();
                 }
                 Task::none()
             }
