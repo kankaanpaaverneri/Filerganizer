@@ -69,6 +69,8 @@ pub enum Message {
     CheckboxToggled(bool, usize),
     DateTypeSelected(DateType),
     ExtractContentFromDirectory(PathBuf),
+    ExtractAllContentFromDirectory(PathBuf),
+    Back,
     Exit,
 }
 
@@ -165,6 +167,14 @@ impl App {
                     if let Some(files) = directory.get_mut_files() {
                         if let Some(file_name) = file_path.iter().last() {
                             if self.files_selected.contains_key(file_name) {
+                                if files.contains_key(file_name) {
+                                    self.error = std::io::Error::new(
+                                        ErrorKind::InvalidData,
+                                        "Duplicate file name found",
+                                    )
+                                    .to_string();
+                                    return Task::none();
+                                }
                                 if let Some((key, value)) =
                                     self.files_selected.remove_entry(file_name)
                                 {
@@ -340,65 +350,85 @@ impl App {
                 self.date_type_selected = Some(date_type);
                 Task::none()
             }
-            Message::ExtractContentFromDirectory(path_to_selected_directory) => {
+            Message::ExtractContentFromDirectory(mut path_to_selected_directory) => {
                 let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
                 if path_to_parent_directory.pop() {
-                    // Check before continuing that the parent and selected directory do not have duplicate keys
-                    if self.directories_have_duplicate_directories(
-                        &path_to_selected_directory,
-                        &path_to_parent_directory,
-                    ) || self.directories_have_duplicate_files(
-                        &path_to_selected_directory,
+                    if let Err(error) = self.extract_files_from_directory(
+                        &mut path_to_selected_directory,
                         &path_to_parent_directory,
                     ) {
-                        self.error = std::io::Error::new(
-                            ErrorKind::InvalidData,
-                            "No duplicates allowed in same directory",
-                        )
-                        .to_string();
-                        return Task::none();
+                        self.error = error.to_string();
                     }
+                }
+
+                Task::none()
+            }
+            Message::ExtractAllContentFromDirectory(mut path_to_selected_directory) => {
+                let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
+                if path_to_parent_directory.pop() {
                     let mut files_holder = BTreeMap::new();
-                    let mut directories_holder = BTreeMap::new();
-                    if let Some(selected_dir) = self
+                    if let Some(parent_dir) = self
                         .root
-                        .get_mut_directory_by_path(&path_to_selected_directory)
+                        .get_mut_directory_by_path(&path_to_parent_directory)
                     {
-                        if let Some(files) = selected_dir.get_mut_files().take() {
+                        if let Some(files) = parent_dir.get_mut_files().take() {
                             for (key, value) in files {
                                 files_holder.insert(key, value);
                             }
                         }
-                        if let Some(directories) = selected_dir.get_mut_directories().take() {
-                            for (key, value) in directories {
-                                directories_holder.insert(key, value);
-                            }
-                        }
                     }
 
-                    let mut selected_directory_name = None;
-                    if let Some(last) = path_to_selected_directory.iter().last() {
-                        selected_directory_name = Some(OsString::from(last));
+                    if let Some(selected_dir) = self
+                        .root
+                        .get_mut_directory_by_path(&path_to_selected_directory)
+                    {
+                        if let Err(error) = selected_dir
+                            .get_files_recursive(&mut files_holder, &mut path_to_selected_directory)
+                        {
+                            self.error = error.to_string();
+                        }
                     }
                     if let Some(parent_dir) = self
                         .root
                         .get_mut_directory_by_path(&path_to_parent_directory)
                     {
-                        for (file_name, file) in files_holder {
-                            parent_dir.insert_file(file_name, file);
+                        for (key, value) in files_holder {
+                            parent_dir.insert_file(key, value);
                         }
-                        for (dir_name, directory) in directories_holder {
-                            if let Some(directory_name_str) = dir_name.to_str() {
-                                parent_dir.insert_directory(directory, directory_name_str);
+                    }
+
+                    if self.error.is_empty() {
+                        if let Some(parent_dir) = self
+                            .root
+                            .get_mut_directory_by_path(&path_to_parent_directory)
+                        {
+                            if let Some(last) = path_to_selected_directory.iter().last() {
+                                parent_dir.remove_sub_directory(last);
+                                self.directories_selected.clear();
                             }
-                        }
-                        if let Some(directory_name) = selected_directory_name {
-                            parent_dir.remove_sub_directory(directory_name.as_os_str());
-                            self.directories_selected.pop();
                         }
                     }
                 }
 
+                Task::none()
+            }
+            Message::Back => {
+                self.directories_selected.clear();
+                self.date_type_selected = None;
+                self.files_selected.clear();
+                self.update_path_input();
+                self.root.clear_directory_content();
+                self.root = Directory::new(None);
+                self.path.clear();
+                self.path_input.clear();
+                self.external_storage.clear();
+                self.error.clear();
+                self.new_directory_name.clear();
+                self.checkbox_states = CheckboxStates::default();
+                //checkbox_states: CheckboxStates,
+                if let Err(error) = self.switch_layout(&Layout::DirectorySelectionLayout) {
+                    self.error = error.to_string();
+                }
                 Task::none()
             }
             Message::Exit => iced::exit(),
@@ -697,43 +727,150 @@ impl App {
         }
     }
 
-    fn directories_have_duplicate_directories(
-        &self,
-        path_to_selected_directory: &PathBuf,
+    fn extract_files_from_directory(
+        &mut self,
+        path_to_selected_directory: &mut PathBuf,
         path_to_parent_directory: &PathBuf,
-    ) -> bool {
+    ) -> std::io::Result<()> {
         let selected_dir = self.root.get_directory_by_path(&path_to_selected_directory);
-        if let Some(selected_directories) = selected_dir.get_directories() {
-            let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
-            if let Some(parent_directories) = parent_dir.get_directories() {
-                for key in selected_directories.keys() {
-                    if parent_directories.contains_key(key) {
-                        return true;
-                    }
-                }
-            }
+        let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
+
+        if directories_have_duplicate_directories(parent_dir, selected_dir)
+            || directories_have_duplicate_files(parent_dir, selected_dir)
+        {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "No duplicates allowed in same directory",
+            ));
         }
-        false
+        let mut files_holder = BTreeMap::new();
+        let mut directories_holder = BTreeMap::new();
+        self.insert_content_from_selected(
+            &mut directories_holder,
+            &mut files_holder,
+            &path_to_selected_directory,
+        )?;
+
+        self.place_files_to_parent_directory(
+            directories_holder,
+            files_holder,
+            path_to_parent_directory,
+        )?;
+
+        if let Some(last) = path_to_selected_directory.iter().last() {
+            self.remove_directories_from_extracted_dir(last, path_to_parent_directory)?;
+            self.directories_selected.pop();
+        }
+
+        Ok(())
     }
 
-    fn directories_have_duplicate_files(
-        &self,
+    fn insert_content_from_selected(
+        &mut self,
+        directories_holder: &mut BTreeMap<OsString, Directory>,
+        files_holder: &mut BTreeMap<OsString, File>,
         path_to_selected_directory: &PathBuf,
-        path_to_parent_directory: &PathBuf,
-    ) -> bool {
-        let selected_dir = self.root.get_directory_by_path(&path_to_selected_directory);
-        if let Some(selected_files) = selected_dir.get_files() {
-            let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
-            if let Some(parent_files) = parent_dir.get_files() {
-                for key in selected_files.keys() {
-                    if parent_files.contains_key(key) {
-                        return true;
+    ) -> std::io::Result<()> {
+        match self
+            .root
+            .get_mut_directory_by_path(path_to_selected_directory)
+        {
+            Some(selected_dir) => {
+                if let Some(files) = selected_dir.get_mut_files().take() {
+                    for (key, value) in files {
+                        files_holder.insert(key, value);
                     }
+                }
+                if let Some(directories) = selected_dir.get_mut_directories().take() {
+                    for (key, value) in directories {
+                        directories_holder.insert(key, value);
+                    }
+                }
+                Ok(())
+            }
+            None => Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "Selected directory path didn't have results",
+            )),
+        }
+    }
+
+    fn place_files_to_parent_directory(
+        &mut self,
+        directories_holder: BTreeMap<OsString, Directory>,
+        files_holder: BTreeMap<OsString, File>,
+        path_to_parent_directory: &PathBuf,
+    ) -> std::io::Result<()> {
+        match self
+            .root
+            .get_mut_directory_by_path(&path_to_parent_directory)
+        {
+            Some(parent_dir) => {
+                for (file_name, file) in files_holder {
+                    parent_dir.insert_file(file_name, file);
+                }
+                for (dir_name, directory) in directories_holder {
+                    if let Some(directory_name_str) = dir_name.to_str() {
+                        parent_dir.insert_directory(directory, directory_name_str);
+                    }
+                }
+                Ok(())
+            }
+            None => Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "Parent directory not found",
+            )),
+        }
+    }
+
+    fn remove_directories_from_extracted_dir(
+        &mut self,
+        selected_directory_name: &OsStr,
+        path_to_parent_directory: &PathBuf,
+    ) -> std::io::Result<()> {
+        match self
+            .root
+            .get_mut_directory_by_path(path_to_parent_directory)
+        {
+            Some(parent_dir) => {
+                parent_dir.remove_sub_directory(selected_directory_name);
+                Ok(())
+            }
+            None => Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "Parent directory not found",
+            )),
+        }
+    }
+}
+
+fn directories_have_duplicate_directories(
+    parent_dir: &Directory,
+    selected_dir: &Directory,
+) -> bool {
+    if let Some(selected_directories) = selected_dir.get_directories() {
+        if let Some(parent_directories) = parent_dir.get_directories() {
+            for key in selected_directories.keys() {
+                if parent_directories.contains_key(key) {
+                    return true;
                 }
             }
         }
-        false
     }
+    false
+}
+
+fn directories_have_duplicate_files(parent_dir: &Directory, selected_dir: &Directory) -> bool {
+    if let Some(selected_files) = selected_dir.get_files() {
+        if let Some(parent_files) = parent_dir.get_files() {
+            for key in selected_files.keys() {
+                if parent_files.contains_key(key) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn are_paths_equal(path1: &PathBuf, path2: &PathBuf) -> bool {

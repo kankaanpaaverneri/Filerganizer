@@ -3,6 +3,7 @@ use crate::metadata::Metadata;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, ReadDir};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,47 @@ impl Directory {
 
     pub fn insert_directories(&mut self, directories: BTreeMap<OsString, Directory>) {
         self.directories = Some(directories);
+    }
+
+    pub fn get_files_recursive(
+        &mut self,
+        files_holder: &mut BTreeMap<OsString, File>,
+        path_to_selected_directory: &mut PathBuf,
+    ) -> std::io::Result<()> {
+        self.contains_unique_files(files_holder)?;
+        if let Some(files) = self.files.take() {
+            for (key, value) in files {
+                files_holder.insert(key, value);
+            }
+        }
+
+        if let Some(directories) = &mut self.directories {
+            for (key, directory) in directories {
+                path_to_selected_directory.push(key);
+                directory.get_files_recursive(files_holder, path_to_selected_directory)?;
+                path_to_selected_directory.pop();
+            }
+        }
+        self.clear_directory_content();
+
+        Ok(())
+    }
+
+    fn contains_unique_files(
+        &self,
+        files_holder: &BTreeMap<OsString, File>,
+    ) -> std::io::Result<()> {
+        if let Some(files) = &self.files {
+            for key in files.keys() {
+                if files_holder.contains_key(key) {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "Duplicate files found in directory",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn read_path(

@@ -113,6 +113,9 @@ impl Layout {
         if let Some(path) = app.get_path().to_str() {
             container(column![
                 row![
+                    column![button("Back").on_press(Message::Back)]
+                        .width(FillPortion(1))
+                        .align_x(Horizontal::Left),
                     column![text("Selected path: "), text(path)]
                         .width(FillPortion(1))
                         .align_x(Horizontal::Left),
@@ -128,7 +131,6 @@ impl Layout {
                         column![
                             self.selected_directory_option(app),
                             self.insert_files_selected(app),
-                            self.rules_for_directory(app),
                         ]
                         .padding(10)
                     )
@@ -162,7 +164,7 @@ impl Layout {
             Message::DateTypeSelected,
         );
         column![
-            text("Rules"),
+            text("Rules for directory"),
             column![
                 checkbox(
                     "Organize to directories by file type.",
@@ -187,8 +189,6 @@ impl Layout {
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
             ],
         ]
-        .spacing(10)
-        .padding(10)
     }
 
     fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
@@ -207,8 +207,9 @@ impl Layout {
                     column = column.push(button("Extract directory content").on_press(
                         Message::ExtractContentFromDirectory(PathBuf::from(directory_path)),
                     ));
-                    column = column.push(button("Extract all"));
-                    column = column.push(button("Insert selected files to selected directory"));
+                    column = column.push(button("Extract all files from directory").on_press(
+                        Message::ExtractAllContentFromDirectory(PathBuf::from(directory_path)),
+                    ));
                     column = column.padding(10).spacing(10);
                 }
             }
@@ -225,9 +226,13 @@ impl Layout {
                 column = column.push(row![
                     text_input("New directory name", app.get_new_directory_input())
                         .on_input(Message::InputNewDirectoryName),
-                    button("Create directory with selected items")
+                    button("Create directory with selected files")
                         .on_press(Message::CreateDirectoryWithSelectedFiles),
                 ]);
+                column = column.push(self.rules_for_directory(app));
+                if !app.get_directories_selected().is_empty() {
+                    column = column.push(button("Insert selected files to selected directory"));
+                }
                 column = column.push(text("Selected files").size(15));
             }
             if let Some(file_name) = key.to_str() {
