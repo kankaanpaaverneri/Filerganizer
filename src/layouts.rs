@@ -110,7 +110,19 @@ impl Layout {
     }
 
     fn directory_organizing_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
+        let mut select_all_files_button = Column::new();
         if let Some(path) = app.get_path().to_str() {
+            let selected_dir = app
+                .get_root_directory()
+                .get_directory_by_path(app.get_path());
+
+            if let Some(files) = selected_dir.get_files() {
+                if !files.is_empty() {
+                    select_all_files_button = select_all_files_button
+                        .push(button("Select all files").on_press(Message::SelectAllFiles));
+                }
+            }
+
             container(column![
                 row![
                     column![button("Back").on_press(Message::Back)]
@@ -125,7 +137,7 @@ impl Layout {
                 ]
                 .align_y(Vertical::Center),
                 column![text(app.get_error())],
-                column![button("Select all files").on_press(Message::SelectAllFiles)],
+                select_all_files_button,
                 row![
                     scrollable(self.display_selected_path_content(app)).width(FillPortion(2)),
                     scrollable(
@@ -229,16 +241,16 @@ impl Layout {
                         .on_input(Message::InputNewDirectoryName),
                     button("Create directory with selected files")
                         .on_press(Message::CreateDirectoryWithSelectedFiles),
-                    
                 ]);
                 column = column.push(button("Just rename").on_press(Message::RenameFiles));
                 column = column.push(self.rules_for_directory(app));
                 if !app.get_directories_selected().is_empty() {
                     column = column.push(button("Insert selected files to selected directory"));
                 }
-                column = column.push(button("Remove all files from selected").on_press(Message::PutAllFilesBack));
+                column = column.push(
+                    button("Remove all files from selected").on_press(Message::PutAllFilesBack),
+                );
                 column = column.push(text("Selected files").size(15));
-                
             }
             if let Some(file_name) = key.to_str() {
                 path_stack.push(key);
