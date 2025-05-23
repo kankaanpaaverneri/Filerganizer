@@ -357,35 +357,6 @@ pub mod organizing {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
 
-    fn get_file_types(files_selected: &BTreeMap<OsString, File>) -> BTreeMap<OsString, Directory> {
-        let mut file_types: BTreeMap<OsString, Directory> = BTreeMap::new();
-        for key in files_selected.keys() {
-            if let Some(file_name) = key.to_str() {
-                let file_name = String::from(file_name);
-                let splitted: Vec<_> = file_name.split(".").collect();
-                if let Some(file_type) = splitted.last() {
-                    file_types.insert(OsString::from(file_type), Directory::new(None));
-                }
-            }
-        }
-        file_types
-    }
-
-    fn get_file_dates(
-        files_selected: &BTreeMap<OsString, File>,
-        date_type: DateType,
-    ) -> BTreeMap<OsString, Directory> {
-        let mut file_dates: BTreeMap<OsString, Directory> = BTreeMap::new();
-        for (_key, file) in files_selected {
-            if let Some(metadata) = file.get_metadata() {
-                if let Some(formatted) = metadata.get_formated_date(date_type) {
-                    file_dates.insert(OsString::from(&formatted), Directory::new(None));
-                }
-            }
-        }
-        file_dates
-    }
-
     pub fn sort_files_by_file_type(
         files_selected: BTreeMap<OsString, File>,
         insert_directory_name_to_file_name: bool,
@@ -485,5 +456,34 @@ pub mod organizing {
             }
         }
         true
+    }
+
+    fn get_file_types(files_selected: &BTreeMap<OsString, File>) -> BTreeMap<OsString, Directory> {
+        let mut file_types: BTreeMap<OsString, Directory> = BTreeMap::new();
+        for key in files_selected.keys() {
+            if let Some(file_name) = key.to_str() {
+                let file_name = String::from(file_name);
+                let splitted: Vec<_> = file_name.split(".").collect();
+                if let Some(file_type) = splitted.last() {
+                    file_types.insert(OsString::from(file_type), Directory::new(None));
+                }
+            }
+        }
+        file_types
+    }
+
+    fn get_file_dates(
+        files_selected: &BTreeMap<OsString, File>,
+        date_type: DateType,
+    ) -> BTreeMap<OsString, Directory> {
+        let mut file_dates: BTreeMap<OsString, Directory> = BTreeMap::new();
+        for (_key, file) in files_selected {
+            if let Some(metadata) = file.get_metadata() {
+                if let Some(formatted) = metadata.get_formated_date(date_type) {
+                    file_dates.insert(OsString::from(&formatted), Directory::new(None));
+                }
+            }
+        }
+        file_dates
     }
 }
