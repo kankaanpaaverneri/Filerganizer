@@ -26,6 +26,9 @@ pub struct CheckboxStates {
     pub organize_by_date: bool,
     pub insert_date_to_file_name: bool,
     pub insert_directory_name_to_file_name: bool,
+    pub remove_uppercase: bool,
+    pub replace_spaces_with_underscores: bool,
+    pub use_only_ascii: bool,
 }
 
 impl Default for CheckboxStates {
@@ -35,6 +38,9 @@ impl Default for CheckboxStates {
             organize_by_date: false,
             insert_date_to_file_name: false,
             insert_directory_name_to_file_name: false,
+            remove_uppercase: false,
+            replace_spaces_with_underscores: false,
+            use_only_ascii: false,
         }
     }
 }
@@ -199,7 +205,22 @@ impl Layout {
                     "Insert directory name to file name",
                     app.get_checkbox_states().insert_directory_name_to_file_name
                 )
-                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) })
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) }),
+                checkbox(
+                    "Remove uppercase",
+                    app.get_checkbox_states().remove_uppercase
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 5) }),
+                checkbox(
+                    "Replace spaces with underscores",
+                    app.get_checkbox_states().replace_spaces_with_underscores
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 6) }),
+                checkbox(
+                    "Use ascii characters only",
+                    app.get_checkbox_states().use_only_ascii
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 7) })
             ],
         ]
     }

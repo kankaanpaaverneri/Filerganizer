@@ -61,11 +61,22 @@ impl Directory {
         if let Some(mut directories) = self.directories.take() {
             directories.insert(OsString::from(directory_name), new_directory);
             self.directories = Some(directories);
+        } else {
+            let mut new_directories = BTreeMap::new();
+            new_directories.insert(OsString::from(directory_name), new_directory);
+            let _result = self.directories.insert(new_directories);
         }
     }
 
     pub fn insert_directories(&mut self, directories: BTreeMap<OsString, Directory>) {
-        self.directories = Some(directories);
+        if let Some(mut dirs) = self.directories.take() {
+            for (key, value) in directories {
+                dirs.insert(key, value);
+            }
+            self.directories = Some(dirs);
+        } else {
+            self.directories = Some(directories);
+        }
     }
 
     pub fn get_files_recursive(
@@ -361,6 +372,9 @@ pub mod organizing {
         files_selected: BTreeMap<OsString, File>,
         insert_directory_name_to_file_name: bool,
         insert_date_to_file_name: bool,
+        remove_uppercase: bool,
+        replace_spaces_with_underscores: bool,
+        use_only_ascii: bool,
         new_directory_name: &str,
         date_type_selected: Option<DateType>,
     ) -> BTreeMap<OsString, Directory> {
@@ -376,11 +390,14 @@ pub mod organizing {
                             &mut renamed_file_name,
                             insert_date_to_file_name,
                             insert_directory_name_to_file_name,
+                            remove_uppercase,
+                            replace_spaces_with_underscores,
+                            use_only_ascii,
                             new_directory_name,
+                            file_name,
                             &file,
                             date_type_selected,
                         );
-                        renamed_file_name.push_str(file_name);
                         dir.insert_file(OsString::from(renamed_file_name), file);
                     }
                 }
@@ -393,6 +410,9 @@ pub mod organizing {
         files_selected: BTreeMap<OsString, File>,
         insert_directory_name_to_file_name: bool,
         insert_date_to_file_name: bool,
+        remove_uppercase: bool,
+        replace_spaces_with_underscores: bool,
+        use_only_ascii: bool,
         new_directory_name: &str,
         date_type_selected: DateType,
     ) -> BTreeMap<OsString, Directory> {
@@ -406,11 +426,14 @@ pub mod organizing {
                             &mut renamed_file_name,
                             insert_date_to_file_name,
                             insert_directory_name_to_file_name,
+                            remove_uppercase,
+                            replace_spaces_with_underscores,
+                            use_only_ascii,
                             new_directory_name,
+                            file_name,
                             &file,
                             Some(date_type_selected),
                         );
-                        renamed_file_name.push_str(file_name);
                         if let Some(dir) = file_date_directories.get_mut(&OsString::from(formatted))
                         {
                             dir.insert_file(OsString::from(renamed_file_name), file);
@@ -426,10 +449,18 @@ pub mod organizing {
         renamed_file_name: &mut String,
         insert_date_to_file_name: bool,
         insert_directory_name_to_file_name: bool,
+        remove_uppercase: bool,
+        replace_spaces_with_underscores: bool,
+        use_only_ascii: bool,
         new_directory_name: &str,
+        file_name: &str,
         file: &File,
         date_type_selected: Option<DateType>,
     ) {
+        if insert_directory_name_to_file_name {
+            renamed_file_name.push_str(new_directory_name);
+            renamed_file_name.push('_');
+        }
         if let Some(date_type) = date_type_selected {
             if insert_date_to_file_name {
                 if let Some(metadata) = file.get_metadata() {
@@ -440,10 +471,38 @@ pub mod organizing {
                 }
             }
         }
-        if insert_directory_name_to_file_name {
-            renamed_file_name.push_str(new_directory_name);
-            renamed_file_name.push('_');
+        renamed_file_name.push_str(file_name);
+        if remove_uppercase {
+            let lowercase = renamed_file_name.as_str().to_lowercase();
+            *renamed_file_name = lowercase;
         }
+        if replace_spaces_with_underscores {
+            *renamed_file_name = renamed_file_name.replace(" ", "_");
+        }
+        if use_only_ascii {
+            if !renamed_file_name.is_ascii() {
+                *renamed_file_name = replace_non_ascii(renamed_file_name.clone());
+            }
+        }
+    }
+
+    fn replace_non_ascii(text: String) -> String {
+        let mut replaced = String::new();
+        for character in text.chars() {
+            let mut changed_character = character;
+            if character == 'ä' {
+                changed_character = 'a';
+            }
+            if character == 'ö' {
+                changed_character = 'o';
+            }
+            if !changed_character.is_ascii() {
+                continue;
+            }
+
+            replaced.push(changed_character);
+        }
+        replaced
     }
 
     pub fn is_directory_name_unique(

@@ -227,22 +227,49 @@ impl App {
             }
             Message::RenameFiles => {
                 let insert_date_to_file_name = self.checkbox_states.insert_date_to_file_name;
+                let remove_uppercase = self.checkbox_states.remove_uppercase;
+                let replace_spaces_with_underscores =
+                    self.checkbox_states.replace_spaces_with_underscores;
+                let use_only_ascii = self.checkbox_states.use_only_ascii;
 
-                if let Some(date_type) = self.date_type_selected {
+                if insert_date_to_file_name
+                    || remove_uppercase
+                    || replace_spaces_with_underscores
+                    || use_only_ascii
+                {
                     if insert_date_to_file_name {
-                        let result = self
-                            .rename_files_without_directory(insert_date_to_file_name, date_type);
+                        if let Some(date_type) = self.date_type_selected {
+                            let result = self.rename_files_without_directory(
+                                insert_date_to_file_name,
+                                remove_uppercase,
+                                replace_spaces_with_underscores,
+                                use_only_ascii,
+                                Some(date_type),
+                            );
+                            if let Err(error) = result {
+                                self.error = error.to_string();
+                            }
+                        } else {
+                            self.error =
+                                std::io::Error::new(ErrorKind::NotFound, "No date type specified")
+                                    .to_string();
+                        }
+                    } else {
+                        let result = self.rename_files_without_directory(
+                            false,
+                            remove_uppercase,
+                            replace_spaces_with_underscores,
+                            use_only_ascii,
+                            None,
+                        );
                         if let Err(error) = result {
                             self.error = error.to_string();
                         }
-                    } else {
-                        self.error =
-                            std::io::Error::new(ErrorKind::NotFound, "No rename options specified")
-                                .to_string();
                     }
                 } else {
-                    self.error = std::io::Error::new(ErrorKind::NotFound, "No date type specified")
-                        .to_string();
+                    self.error =
+                        std::io::Error::new(ErrorKind::NotFound, "No rename options specified")
+                            .to_string();
                 }
                 Task::none()
             }
@@ -647,6 +674,9 @@ impl App {
                 organize_by_date,
                 insert_date_to_file_name,
                 insert_directory_name_to_file_name,
+                remove_uppercase,
+                replace_spaces_with_underscores,
+                use_only_ascii,
             } = self.checkbox_states;
 
             // In case of an error, put files_selected back to self
@@ -656,6 +686,9 @@ impl App {
                 files_selected,
                 insert_directory_name_to_file_name,
                 insert_date_to_file_name,
+                remove_uppercase,
+                replace_spaces_with_underscores,
+                use_only_ascii,
                 new_directory_name: &self.new_directory_name,
                 date_type: self.date_type_selected,
             };
@@ -674,7 +707,7 @@ impl App {
                         return Err(self.handle_checkbox_error(error, temp_files_selected))
                     }
                 }
-            } else if self.checkbox_states.organize_by_filetype {
+            } else if organize_by_filetype {
                 match organize_by_file_type(data) {
                     Ok(directories_by_file_type) => {
                         selected_directory.insert_new_sub_directory(
@@ -688,7 +721,7 @@ impl App {
                         return Err(self.handle_checkbox_error(error, temp_files_selected))
                     }
                 }
-            } else if self.checkbox_states.organize_by_date {
+            } else if organize_by_date {
                 // If only organize_by_date is checked
                 match organize_to_directories_by_date(data) {
                     Ok(directories_by_date) => {
@@ -703,7 +736,12 @@ impl App {
                         return Err(self.handle_checkbox_error(error, temp_files_selected))
                     }
                 }
-            } else if insert_directory_name_to_file_name || insert_date_to_file_name {
+            } else if insert_directory_name_to_file_name
+                || insert_date_to_file_name
+                || remove_uppercase
+                || replace_spaces_with_underscores
+                || use_only_ascii
+            {
                 match rename_and_organize_to_directory(data) {
                     Ok(new_directory) => {
                         selected_directory
@@ -719,6 +757,9 @@ impl App {
                 && !organize_by_filetype
                 && !insert_date_to_file_name
                 && !insert_directory_name_to_file_name
+                && !remove_uppercase
+                && !replace_spaces_with_underscores
+                && !use_only_ascii
             {
                 // If none are checked
                 let mut new_directory = Directory::new(None);
@@ -739,7 +780,10 @@ impl App {
     fn rename_files_without_directory(
         &mut self,
         insert_date_to_file_name: bool,
-        date_type: DateType,
+        remove_uppercase: bool,
+        replace_spaces_with_underscores: bool,
+        use_only_ascii: bool,
+        date_type: Option<DateType>,
     ) -> std::io::Result<()> {
         if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
             while let Some((key, value)) = self.files_selected.pop_last() {
@@ -749,11 +793,14 @@ impl App {
                         &mut renamed_file_name,
                         insert_date_to_file_name,
                         false,
+                        remove_uppercase,
+                        replace_spaces_with_underscores,
+                        use_only_ascii,
                         &self.new_directory_name,
+                        file_name,
                         &value,
-                        Some(date_type),
+                        date_type,
                     );
-                    renamed_file_name.push_str(file_name);
                     selected_dir.insert_file(OsString::from(renamed_file_name), value);
                 }
             }
@@ -778,6 +825,15 @@ impl App {
             }
             4 => {
                 self.checkbox_states.insert_directory_name_to_file_name = toggle;
+            }
+            5 => {
+                self.checkbox_states.remove_uppercase = toggle;
+            }
+            6 => {
+                self.checkbox_states.replace_spaces_with_underscores = toggle;
+            }
+            7 => {
+                self.checkbox_states.use_only_ascii = toggle;
             }
             _ => {}
         }
@@ -1030,6 +1086,9 @@ pub struct OrganizingData<'a> {
     pub files_selected: BTreeMap<OsString, File>,
     pub insert_directory_name_to_file_name: bool,
     pub insert_date_to_file_name: bool,
+    pub remove_uppercase: bool,
+    pub replace_spaces_with_underscores: bool,
+    pub use_only_ascii: bool,
     pub new_directory_name: &'a str,
     pub date_type: Option<DateType>,
 }
@@ -1042,6 +1101,9 @@ fn organize_files_by_file_type_and_date(
             data.files_selected,
             data.insert_directory_name_to_file_name,
             data.insert_date_to_file_name,
+            data.remove_uppercase,
+            data.replace_spaces_with_underscores,
+            data.use_only_ascii,
             data.new_directory_name,
             Some(date_type_selected),
         );
@@ -1052,6 +1114,9 @@ fn organize_files_by_file_type_and_date(
                     files,
                     false,
                     false,
+                    data.remove_uppercase,
+                    data.replace_spaces_with_underscores,
+                    data.use_only_ascii,
                     data.new_directory_name,
                     date_type_selected,
                 );
@@ -1080,6 +1145,9 @@ fn organize_by_file_type(data: OrganizingData) -> std::io::Result<BTreeMap<OsStr
         data.files_selected,
         data.insert_directory_name_to_file_name,
         data.insert_date_to_file_name,
+        data.remove_uppercase,
+        data.replace_spaces_with_underscores,
+        data.use_only_ascii,
         data.new_directory_name,
         data.date_type,
     );
@@ -1094,6 +1162,9 @@ fn organize_to_directories_by_date(
             data.files_selected.clone(),
             data.insert_directory_name_to_file_name,
             data.insert_date_to_file_name,
+            data.remove_uppercase,
+            data.replace_spaces_with_underscores,
+            data.use_only_ascii,
             data.new_directory_name,
             date_type,
         );
@@ -1124,11 +1195,14 @@ fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Dir
                 &mut renamed_file_name,
                 data.insert_date_to_file_name,
                 data.insert_directory_name_to_file_name,
+                data.remove_uppercase,
+                data.replace_spaces_with_underscores,
+                data.use_only_ascii,
                 data.new_directory_name,
+                file_name,
                 &file,
                 data.date_type,
             );
-            renamed_file_name.push_str(file_name);
             new_directory.insert_file(OsString::from(renamed_file_name), file);
         }
     }
