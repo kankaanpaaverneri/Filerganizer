@@ -218,9 +218,25 @@ impl App {
                 while let Some((key, value)) = self.files_selected.pop_last() {
                     files_selected.insert(key, value);
                 }
+                match self.create_directory_with_selected_files(files_selected) {
+                    Ok(_) => {
+                        let mut path_to_directory = PathBuf::from(&self.path);
+                        path_to_directory.push(&self.new_directory_name);
 
-                if let Err(error) = self.create_directory_with_selected_files(files_selected) {
-                    self.error = error.to_string();
+                        match save_directory::write_created_directory_to_save_file(
+                            path_to_directory,
+                            self.checkbox_states.clone(),
+                            self.date_type_selected,
+                        ) {
+                            Ok(_) => {
+                                self.new_directory_name.clear();
+                            }
+                            Err(error) => {
+                                self.error = error.to_string();
+                            }
+                        }
+                    }
+                    Err(error) => self.error = error.to_string(),
                 }
 
                 Task::none()
@@ -284,11 +300,19 @@ impl App {
             Message::ExtractContentFromDirectory(mut path_to_selected_directory) => {
                 let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
                 if path_to_parent_directory.pop() {
-                    if let Err(error) = self.extract_content_from_directory(
+                    match self.extract_content_from_directory(
                         &mut path_to_selected_directory,
                         &path_to_parent_directory,
                     ) {
-                        self.error = error.to_string();
+                        Ok(_) => {
+                            // Delete path from .save_file.txt
+                            if let Err(error) = save_directory::remove_directory_from_file(
+                                path_to_selected_directory,
+                            ) {
+                                self.error = error.to_string();
+                            }
+                        }
+                        Err(error) => self.error = error.to_string(),
                     }
                 }
 
@@ -692,6 +716,9 @@ impl App {
                 new_directory_name: &self.new_directory_name,
                 date_type: self.date_type_selected,
             };
+
+            // Write directory path and checkbox states to a file
+
             // If both organize_by_file_type and date are checked
             if organize_by_filetype && organize_by_date {
                 match organize_files_by_file_type_and_date(data) {
@@ -700,7 +727,6 @@ impl App {
                             &self.new_directory_name,
                             directories_by_file_type_and_date,
                         );
-                        self.new_directory_name.clear();
                         return Ok(());
                     }
                     Err(error) => {
@@ -714,7 +740,6 @@ impl App {
                             &self.new_directory_name,
                             directories_by_file_type,
                         );
-                        self.new_directory_name.clear();
                         return Ok(());
                     }
                     Err(error) => {
@@ -729,7 +754,6 @@ impl App {
                             &self.new_directory_name,
                             directories_by_date,
                         );
-                        self.new_directory_name.clear();
                         return Ok(());
                     }
                     Err(error) => {
@@ -746,7 +770,6 @@ impl App {
                     Ok(new_directory) => {
                         selected_directory
                             .insert_directory(new_directory, &self.new_directory_name);
-                        self.new_directory_name.clear();
                         return Ok(());
                     }
                     Err(error) => {
@@ -1108,8 +1131,8 @@ fn organize_files_by_file_type_and_date(
             Some(date_type_selected),
         );
 
-        for (_, value) in &mut directories_by_file_type {
-            if let Some(files) = value.get_mut_files().take() {
+        for (_, directory) in &mut directories_by_file_type {
+            if let Some(files) = directory.get_mut_files().take() {
                 let directories_by_date = organizing::sort_files_by_date(
                     files,
                     false,
@@ -1120,7 +1143,7 @@ fn organize_files_by_file_type_and_date(
                     data.new_directory_name,
                     date_type_selected,
                 );
-                value.insert_directories(directories_by_date);
+                directory.insert_directories(directories_by_date);
             }
         }
         Ok(directories_by_file_type)
@@ -1207,4 +1230,150 @@ fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Dir
         }
     }
     Ok(new_directory)
+}
+
+mod save_directory {
+    use crate::{layouts::CheckboxStates, metadata::DateType};
+    use std::{
+        io::{Read, Write},
+        path::PathBuf,
+    };
+    const SAVE_FILE_LOCATION: &str =
+        "/Users/vernerikankaanpaa/RustProjects/filerganizer/.save_file.txt";
+    pub fn write_created_directory_to_save_file(
+        path: PathBuf,
+        checkbox_states: CheckboxStates,
+        date_type: Option<DateType>,
+    ) -> std::io::Result<()> {
+        match std::fs::File::options()
+            .append(true)
+            .open(SAVE_FILE_LOCATION)
+        {
+            Ok(mut file) => {
+                // Add to existing file
+                if let Some(dir_path) = path.to_str() {
+                    let mut file_content = String::new();
+                    write_directory_data_to_string(
+                        &mut file_content,
+                        dir_path,
+                        checkbox_states,
+                        date_type,
+                    );
+                    file.write(file_content.as_bytes())?;
+                } else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Could not convert path to string.",
+                    ));
+                }
+            }
+            Err(_) => {
+                // Create file
+                let mut save_file = create_save_file()?;
+                if let Some(dir_path) = path.to_str() {
+                    let mut file_content = String::new();
+                    write_directory_data_to_string(
+                        &mut file_content,
+                        dir_path,
+                        checkbox_states,
+                        date_type,
+                    );
+                    save_file.write(file_content.as_bytes())?;
+                } else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Could not convert path to string.",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn remove_directory_from_file(path_to_extracted_dir: PathBuf) -> std::io::Result<()> {
+        match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
+            Ok(mut file) => {
+                let mut file_content = String::new();
+                file.read_to_string(&mut file_content)?;
+                for line in file_content.lines() {
+                    let line_path = PathBuf::from(line);
+                    if line_path == path_to_extracted_dir {
+                        println!("Line found: {line}");
+                    }
+                }
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn create_save_file() -> std::io::Result<std::fs::File> {
+        match std::fs::File::create(SAVE_FILE_LOCATION) {
+            Ok(file) => Ok(file),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn write_directory_data_to_string(
+        file_content: &mut String,
+        dir_path: &str,
+        checkbox_states: CheckboxStates,
+        date_type: Option<DateType>,
+    ) {
+        file_content.push_str(dir_path);
+        file_content.push_str("\n");
+
+        let formatted = format!(
+            "organize_by_file_type: {}\n",
+            checkbox_states.organize_by_filetype
+        );
+        file_content.push_str(&formatted);
+
+        let formatted = format!("organize_by_date: {}\n", checkbox_states.organize_by_date);
+        file_content.push_str(&formatted);
+
+        let formatted = format!(
+            "insert_date_to_file_name: {}\n",
+            checkbox_states.insert_date_to_file_name
+        );
+        file_content.push_str(&formatted);
+
+        let formatted = format!(
+            "insert_directory_name_to_file_name: {}\n",
+            checkbox_states.insert_directory_name_to_file_name
+        );
+        file_content.push_str(&formatted);
+
+        let formatted = format!("remove_uppercase: {}\n", checkbox_states.remove_uppercase);
+        file_content.push_str(&formatted);
+
+        let formatted = format!(
+            "replace_spaces_with_underscores: {}\n",
+            checkbox_states.replace_spaces_with_underscores
+        );
+        file_content.push_str(&formatted);
+
+        let formatted = format!("use_only_ascii: {}\n", checkbox_states.use_only_ascii);
+        file_content.push_str(&formatted);
+
+        if let Some(date_type) = date_type {
+            match date_type {
+                DateType::Created => {
+                    let formatted = String::from("date_type: Created\n");
+                    file_content.push_str(&formatted);
+                }
+                DateType::Accessed => {
+                    let formatted = String::from("date_type: Accessed\n");
+                    file_content.push_str(&formatted);
+                }
+                DateType::Modified => {
+                    let formatted = String::from("date_type: Modified\n");
+                    file_content.push_str(&formatted);
+                }
+            }
+        } else {
+            let formatted = String::from("date_type: None\n");
+            file_content.push_str(&formatted);
+        }
+    }
 }
