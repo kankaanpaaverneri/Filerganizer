@@ -1233,6 +1233,7 @@ fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Dir
 }
 
 mod save_directory {
+
     use crate::{layouts::CheckboxStates, metadata::DateType};
     use std::{
         io::{Read, Write},
@@ -1291,20 +1292,63 @@ mod save_directory {
     }
 
     pub fn remove_directory_from_file(path_to_extracted_dir: PathBuf) -> std::io::Result<()> {
-        match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
+        let open_result = match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
             Ok(mut file) => {
                 let mut file_content = String::new();
                 file.read_to_string(&mut file_content)?;
-                for line in file_content.lines() {
-                    let line_path = PathBuf::from(line);
-                    if line_path == path_to_extracted_dir {
-                        println!("Line found: {line}");
-                    }
+                let file_lines: Vec<&str> = file_content.lines().collect();
+                let filtered_lines = filter_lines(file_lines, &path_to_extracted_dir);
+                let mut updated_file_content = String::new();
+                for line in filtered_lines {
+                    updated_file_content.push_str(line);
+                    updated_file_content.push('\n');
                 }
-                Ok(())
+                Ok(updated_file_content)
+            }
+            Err(error) => Err(error),
+        };
+
+        match open_result {
+            Ok(updated_file_content) => {
+                match std::fs::File::options()
+                    .truncate(true)
+                    .write(true)
+                    .open(SAVE_FILE_LOCATION)
+                {
+                    Ok(mut file) => {
+                        file.set_len(0)?;
+                        file.write(updated_file_content.as_bytes())?;
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn filter_lines<'a>(
+        file_lines: Vec<&'a str>,
+        path_to_extracted_dir: &'a PathBuf,
+    ) -> Vec<&'a str> {
+        let mut remove = false;
+        let filtered_lines: Vec<&str> = file_lines
+            .iter()
+            .filter_map(|line| {
+                if PathBuf::from(*line) == *path_to_extracted_dir {
+                    remove = true;
+                    return None;
+                }
+                if (*line).contains("/") && remove {
+                    remove = false;
+                }
+                if remove {
+                    return None;
+                }
+                Some(*line)
+            })
+            .collect();
+        filtered_lines
     }
 
     fn create_save_file() -> std::io::Result<std::fs::File> {
