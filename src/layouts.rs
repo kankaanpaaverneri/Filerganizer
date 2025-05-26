@@ -178,7 +178,7 @@ impl Layout {
             Message::DateTypeSelected,
         );
         let modified = radio(
-            "Accessed",
+            "Modified",
             DateType::Modified,
             app.get_date_type_selected(),
             Message::DateTypeSelected,
