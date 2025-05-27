@@ -266,12 +266,16 @@ impl Layout {
                 ]);
                 column = column.push(button("Just rename").on_press(Message::RenameFiles));
                 column = column.push(self.rules_for_directory(app));
-                if !app.get_directories_selected().is_empty() {
-                    column = column.push(button("Insert selected files to selected directory"));
-                }
+
                 column = column.push(
                     button("Remove all files from selected").on_press(Message::PutAllFilesBack),
                 );
+                if !app.get_directories_selected().is_empty() {
+                    column = column.push(
+                        button("Insert selected files to selected directory")
+                            .on_press(Message::InsertFilesToSelectedDirectory),
+                    );
+                }
                 column = column.push(text("Selected files").size(15));
             }
             if let Some(file_name) = key.to_str() {

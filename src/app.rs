@@ -71,6 +71,7 @@ pub enum Message {
     DateTypeSelected(DateType),
     ExtractContentFromDirectory(PathBuf),
     ExtractAllContentFromDirectory(PathBuf),
+    InsertFilesToSelectedDirectory,
     Back,
     Exit,
 }
@@ -337,6 +338,38 @@ impl App {
 
                 Task::none()
             }
+            Message::InsertFilesToSelectedDirectory => {
+                if let Some(selected_dir_path) = self.directories_selected.last() {
+                    if let Some(selected_dir) =
+                        self.root.get_mut_directory_by_path(selected_dir_path)
+                    {
+                        // Selected dir found
+                        match save_directory::read_directory_rules_from_file(selected_dir_path) {
+                            Ok((checkbox_states, date_type)) => {
+                                if let Some(last) = selected_dir_path.iter().last() {
+                                    if let Some(directory_name) = last.to_str() {
+                                        if let Err(error) = move_to_organized_directory(
+                                            self.files_selected.clone(),
+                                            selected_dir,
+                                            directory_name,
+                                            checkbox_states,
+                                            date_type,
+                                        ) {
+                                            self.error = error.to_string();
+                                        } else {
+                                            self.files_selected.clear();
+                                        }
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                self.error = error.to_string();
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
             Message::Back => {
                 self.init_app_data();
                 if let Err(error) = self.switch_layout(&Layout::DirectorySelectionLayout) {
@@ -413,7 +446,9 @@ impl App {
                     path.push("Volumes");
                     self.write_directory_to_tree(&path)?;
                     self.get_volumes_on_macos();
-                    self.write_directories_from_path(&PathBuf::from("/Users/vernerikankaanpaa"))?;
+                    self.write_directories_from_path(&PathBuf::from(
+                        "/Users/vernerikankaanpaa/Downloads",
+                    ))?;
                     self.update_path_input();
                     self.layout = Layout::DirectorySelectionLayout;
                     Ok(())
@@ -640,17 +675,6 @@ impl App {
         }
     }
 
-    fn handle_checkbox_error(
-        &mut self,
-        error: std::io::Error,
-        files_selected: BTreeMap<OsString, File>,
-    ) -> std::io::Error {
-        for (key, value) in files_selected {
-            self.files_selected.insert(key, value);
-        }
-        error
-    }
-
     fn is_duplicate_files_selected(&self) -> std::io::Result<()> {
         let selected_dir = self.root.get_directory_by_path(&self.path);
         if let Some(files) = selected_dir.get_files() {
@@ -689,12 +713,10 @@ impl App {
         if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
             if let Some(directories) = selected_directory.get_directories() {
                 if !organizing::is_directory_name_unique(&self.new_directory_name, directories) {
-                    return Err(self.handle_checkbox_error(
-                        std::io::Error::new(
-                            ErrorKind::AlreadyExists,
-                            "Directory name already exists.",
-                        ),
-                        files_selected,
+                    self.files_selected = files_selected;
+                    return Err(std::io::Error::new(
+                        ErrorKind::AlreadyExists,
+                        "Directory name already exists.",
                     ));
                 }
             }
@@ -714,6 +736,8 @@ impl App {
 
             let data = OrganizingData {
                 files_selected,
+                organize_by_filetype,
+                organize_by_date,
                 insert_directory_name_to_file_name,
                 insert_date_to_file_name,
                 remove_uppercase,
@@ -724,79 +748,13 @@ impl App {
             };
 
             // Write directory path and checkbox states to a file
-
-            // If both organize_by_file_type and date are checked
-            if organize_by_filetype && organize_by_date {
-                match organize_files_by_file_type_and_date(data) {
-                    Ok(directories_by_file_type_and_date) => {
-                        selected_directory.insert_new_sub_directory(
-                            &self.new_directory_name,
-                            directories_by_file_type_and_date,
-                        );
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        return Err(self.handle_checkbox_error(error, temp_files_selected))
-                    }
-                }
-            } else if organize_by_filetype {
-                match organize_by_file_type(data) {
-                    Ok(directories_by_file_type) => {
-                        selected_directory.insert_new_sub_directory(
-                            &self.new_directory_name,
-                            directories_by_file_type,
-                        );
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        return Err(self.handle_checkbox_error(error, temp_files_selected))
-                    }
-                }
-            } else if organize_by_date {
-                // If only organize_by_date is checked
-                match organize_to_directories_by_date(data) {
-                    Ok(directories_by_date) => {
-                        selected_directory.insert_new_sub_directory(
-                            &self.new_directory_name,
-                            directories_by_date,
-                        );
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        return Err(self.handle_checkbox_error(error, temp_files_selected))
-                    }
-                }
-            } else if insert_directory_name_to_file_name
-                || insert_date_to_file_name
-                || remove_uppercase
-                || replace_spaces_with_underscores
-                || use_only_ascii
-            {
-                match rename_and_organize_to_directory(data) {
-                    Ok(new_directory) => {
-                        selected_directory
-                            .insert_directory(new_directory, &self.new_directory_name);
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        return Err(self.handle_checkbox_error(error, temp_files_selected))
-                    }
-                }
-            } else if !organize_by_filetype
-                && !organize_by_filetype
-                && !insert_date_to_file_name
-                && !insert_directory_name_to_file_name
-                && !remove_uppercase
-                && !replace_spaces_with_underscores
-                && !use_only_ascii
-            {
-                // If none are checked
-                let mut new_directory = Directory::new(None);
-                for (key, value) in data.files_selected {
-                    new_directory.insert_file(key, value);
-                }
-                selected_directory.insert_directory(new_directory, &self.new_directory_name);
-                return Ok(());
+            if let Err(error) = apply_rules_for_directory(
+                String::from(&self.new_directory_name),
+                selected_directory,
+                data,
+            ) {
+                self.files_selected = temp_files_selected;
+                return Err(error);
             }
             return Ok(());
         }
@@ -1047,6 +1005,152 @@ impl App {
     }
 }
 
+fn move_to_organized_directory(
+    files_selected: BTreeMap<OsString, File>,
+    selected_directory: &mut Directory,
+    directory_name: &str,
+    checkbox_states: CheckboxStates,
+    date_type: Option<DateType>,
+) -> std::io::Result<()> {
+    let CheckboxStates {
+        organize_by_filetype,
+        organize_by_date,
+        insert_date_to_file_name,
+        insert_directory_name_to_file_name,
+        remove_uppercase,
+        replace_spaces_with_underscores,
+        use_only_ascii,
+    } = checkbox_states;
+
+    if organize_by_filetype && organize_by_date {
+        let mut directories_by_file_type = organizing::sort_files_by_file_type(
+            files_selected,
+            insert_directory_name_to_file_name,
+            insert_date_to_file_name,
+            remove_uppercase,
+            replace_spaces_with_underscores,
+            use_only_ascii,
+            directory_name,
+            date_type,
+        );
+
+        filter_duplicate_directories(selected_directory, &mut directories_by_file_type);
+        selected_directory.insert_directories(directories_by_file_type);
+        if let Some(date_type) = date_type {
+            if let Some(dirs) = selected_directory.get_mut_directories() {
+                for (_key, dir) in dirs {
+                    if let Some(files) = dir.get_mut_files().take() {
+                        let mut directories_by_date = organizing::sort_files_by_date(
+                            files,
+                            insert_directory_name_to_file_name,
+                            insert_date_to_file_name,
+                            remove_uppercase,
+                            replace_spaces_with_underscores,
+                            use_only_ascii,
+                            directory_name,
+                            date_type,
+                        );
+                        filter_duplicate_directories(dir, &mut directories_by_date);
+                        dir.insert_directories(directories_by_date);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn filter_duplicate_directories(
+    selected_directory: &mut Directory,
+    new_directories: &mut BTreeMap<OsString, Directory>,
+) {
+    if let Some(directories) = selected_directory.get_mut_directories() {
+        for (selected_key, selected_dir) in directories {
+            if new_directories.contains_key(selected_key) {
+                if let Some(new_dir) = new_directories.get_mut(selected_key).take() {
+                    if let Some(new_files) = new_dir.get_mut_files().take() {
+                        for (file_name, file) in new_files {
+                            selected_dir.insert_file(file_name, file);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn apply_rules_for_directory(
+    new_directory_name: String,
+    selected_directory: &mut Directory,
+    data: OrganizingData,
+) -> std::io::Result<()> {
+    // If both organize_by_file_type and date are checked
+    if data.organize_by_filetype && data.organize_by_date {
+        match organize_files_by_file_type_and_date(data) {
+            Ok(directories_by_file_type_and_date) => {
+                selected_directory.insert_new_sub_directory(
+                    &new_directory_name,
+                    directories_by_file_type_and_date,
+                );
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        }
+    } else if data.organize_by_filetype {
+        match organize_by_file_type(data) {
+            Ok(directories_by_file_type) => {
+                selected_directory
+                    .insert_new_sub_directory(&new_directory_name, directories_by_file_type);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        }
+    } else if data.organize_by_date {
+        // If only organize_by_date is checked
+        match organize_to_directories_by_date(data) {
+            Ok(directories_by_date) => {
+                selected_directory
+                    .insert_new_sub_directory(&new_directory_name, directories_by_date);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        }
+    } else if data.insert_directory_name_to_file_name
+        || data.insert_date_to_file_name
+        || data.remove_uppercase
+        || data.replace_spaces_with_underscores
+        || data.use_only_ascii
+    {
+        match rename_and_organize_to_directory(data) {
+            Ok(new_directory) => {
+                selected_directory.insert_directory(new_directory, &new_directory_name);
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        }
+    } else if !data.organize_by_filetype
+        && !data.organize_by_filetype
+        && !data.insert_date_to_file_name
+        && !data.insert_directory_name_to_file_name
+        && !data.remove_uppercase
+        && !data.replace_spaces_with_underscores
+        && !data.use_only_ascii
+    {
+        // If none are checked
+        let mut new_directory = Directory::new(None);
+        for (key, value) in data.files_selected {
+            new_directory.insert_file(key, value);
+        }
+        selected_directory.insert_directory(new_directory, &new_directory_name);
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        ErrorKind::Other,
+        "Rules didn't match any case",
+    ))
+}
+
 fn select_file(
     files: &mut BTreeMap<OsString, File>,
     files_selected: &mut BTreeMap<OsString, File>,
@@ -1113,6 +1217,8 @@ fn are_paths_equal(path1: &PathBuf, path2: &PathBuf) -> bool {
 
 pub struct OrganizingData<'a> {
     pub files_selected: BTreeMap<OsString, File>,
+    pub organize_by_filetype: bool,
+    pub organize_by_date: bool,
     pub insert_directory_name_to_file_name: bool,
     pub insert_date_to_file_name: bool,
     pub remove_uppercase: bool,
@@ -1136,7 +1242,6 @@ fn organize_files_by_file_type_and_date(
             data.new_directory_name,
             Some(date_type_selected),
         );
-
         for (_, directory) in &mut directories_by_file_type {
             if let Some(files) = directory.get_mut_files().take() {
                 let directories_by_date = organizing::sort_files_by_date(
@@ -1242,7 +1347,7 @@ mod save_directory {
 
     use crate::{layouts::CheckboxStates, metadata::DateType};
     use std::{
-        io::{Read, Write},
+        io::{ErrorKind, Read, Write},
         path::PathBuf,
     };
     const SAVE_FILE_LOCATION: &str =
@@ -1332,6 +1437,87 @@ mod save_directory {
         file.set_len(0)?;
         file.write(updated_file_content.as_bytes())?;
         Ok(())
+    }
+
+    pub fn read_directory_rules_from_file(
+        path: &PathBuf,
+    ) -> std::io::Result<(CheckboxStates, Option<DateType>)> {
+        match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
+            Ok(mut file) => {
+                let mut buffer = String::new();
+                file.read_to_string(&mut buffer)?;
+                if let Some(list_of_rules) = parse_file_result(buffer.as_str(), path) {
+                    let checkbox_states = parse_rules(&list_of_rules);
+                    let date_type = parse_date_type(&list_of_rules);
+                    return Ok((checkbox_states, date_type));
+                }
+                Err(std::io::Error::new(
+                    ErrorKind::NotFound,
+                    "Error parsing file result",
+                ))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn parse_rules(list_of_rules: &Vec<&str>) -> CheckboxStates {
+        let mut checkbox_states = CheckboxStates::default();
+        if list_of_rules[1] == "1" {
+            checkbox_states.organize_by_filetype = true;
+        }
+        if list_of_rules[2] == "1" {
+            checkbox_states.organize_by_date = true;
+        }
+
+        if list_of_rules[3] == "1" {
+            checkbox_states.insert_date_to_file_name = true;
+        }
+
+        if list_of_rules[4] == "1" {
+            checkbox_states.insert_directory_name_to_file_name = true;
+        }
+
+        if list_of_rules[5] == "1" {
+            checkbox_states.remove_uppercase = true;
+        }
+
+        if list_of_rules[6] == "1" {
+            checkbox_states.replace_spaces_with_underscores = true;
+        }
+
+        if list_of_rules[7] == "1" {
+            checkbox_states.use_only_ascii = true;
+        }
+        checkbox_states
+    }
+
+    fn parse_date_type(list_of_rules: &Vec<&str>) -> Option<DateType> {
+        if let Some(date_type) = list_of_rules.last() {
+            return match *date_type {
+                "Created" => Some(DateType::Created),
+                "Accessed" => Some(DateType::Accessed),
+                "Modified" => Some(DateType::Modified),
+                _ => return None,
+            };
+        }
+        None
+    }
+
+    fn parse_file_result<'a>(buffer: &'a str, path: &'a PathBuf) -> Option<Vec<&'a str>> {
+        let line = buffer.lines().find(|line| {
+            if let Some(path) = path.to_str() {
+                if line.contains(path) {
+                    return true;
+                }
+            }
+            false
+        });
+        if let Some(line) = line {
+            let directory_rules: Vec<&'a str> = line.split(",").collect();
+            return Some(directory_rules);
+        }
+
+        None
     }
 
     fn create_save_file() -> std::io::Result<std::fs::File> {
