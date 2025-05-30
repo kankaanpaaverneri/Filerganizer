@@ -6,8 +6,8 @@ use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use crate::directory::organizing;
 use crate::directory::Directory;
+use crate::directory::{self, organizing};
 use crate::file::File;
 use crate::layouts::{CheckboxStates, DirectoryView, Layout};
 use crate::metadata::DateType;
@@ -1021,39 +1021,23 @@ fn move_to_organized_directory(
         replace_spaces_with_underscores,
         use_only_ascii,
     } = checkbox_states;
-
+    let data = OrganizingData {
+        files_selected,
+        organize_by_filetype,
+        organize_by_date,
+        insert_directory_name_to_file_name,
+        insert_date_to_file_name,
+        remove_uppercase,
+        replace_spaces_with_underscores,
+        use_only_ascii,
+        new_directory_name: directory_name,
+        date_type,
+    };
     if organize_by_filetype && organize_by_date {
-        let mut directories_by_file_type = organizing::sort_files_by_file_type(
-            files_selected,
-            insert_directory_name_to_file_name,
-            insert_date_to_file_name,
-            remove_uppercase,
-            replace_spaces_with_underscores,
-            use_only_ascii,
-            directory_name,
-            date_type,
-        );
-
-        filter_duplicate_directories(selected_directory, &mut directories_by_file_type);
-        selected_directory.insert_directories(directories_by_file_type);
-        if let Some(date_type) = date_type {
-            if let Some(dirs) = selected_directory.get_mut_directories() {
-                for (_key, dir) in dirs {
-                    if let Some(files) = dir.get_mut_files().take() {
-                        let mut directories_by_date = organizing::sort_files_by_date(
-                            files,
-                            insert_directory_name_to_file_name,
-                            insert_date_to_file_name,
-                            remove_uppercase,
-                            replace_spaces_with_underscores,
-                            use_only_ascii,
-                            directory_name,
-                            date_type,
-                        );
-                        filter_duplicate_directories(dir, &mut directories_by_date);
-                        dir.insert_directories(directories_by_date);
-                    }
-                }
+        match organize_files_by_file_type_and_date(selected_directory, data) {
+            Ok(_) => {}
+            Err(error) => {
+                return Err(error);
             }
         }
     }
@@ -1061,17 +1045,17 @@ fn move_to_organized_directory(
     Ok(())
 }
 
-fn filter_duplicate_directories(
+fn move_files_from_duplicate_directories(
     selected_directory: &mut Directory,
     new_directories: &mut BTreeMap<OsString, Directory>,
 ) {
-    if let Some(directories) = selected_directory.get_mut_directories() {
-        for (selected_key, selected_dir) in directories {
-            if new_directories.contains_key(selected_key) {
-                if let Some(new_dir) = new_directories.get_mut(selected_key).take() {
-                    if let Some(new_files) = new_dir.get_mut_files().take() {
-                        for (file_name, file) in new_files {
-                            selected_dir.insert_file(file_name, file);
+    if let Some(selected_directories) = selected_directory.get_mut_directories() {
+        for (new_key, new_dir) in new_directories {
+            if selected_directories.contains_key(new_key) {
+                if let Some(files) = new_dir.get_mut_files().take() {
+                    if let Some(value) = selected_directories.get_mut(new_key) {
+                        for (file_name, file) in files {
+                            value.insert_file(file_name, file);
                         }
                     }
                 }
@@ -1087,12 +1071,10 @@ fn apply_rules_for_directory(
 ) -> std::io::Result<()> {
     // If both organize_by_file_type and date are checked
     if data.organize_by_filetype && data.organize_by_date {
-        match organize_files_by_file_type_and_date(data) {
-            Ok(directories_by_file_type_and_date) => {
-                selected_directory.insert_new_sub_directory(
-                    &new_directory_name,
-                    directories_by_file_type_and_date,
-                );
+        let mut new_directory = Directory::new(None);
+        match organize_files_by_file_type_and_date(&mut new_directory, data) {
+            Ok(_) => {
+                selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -1229,8 +1211,9 @@ pub struct OrganizingData<'a> {
 }
 
 fn organize_files_by_file_type_and_date(
+    selected_directory: &mut Directory,
     data: OrganizingData,
-) -> std::io::Result<BTreeMap<OsString, Directory>> {
+) -> std::io::Result<()> {
     if let Some(date_type_selected) = data.date_type {
         let mut directories_by_file_type = organizing::sort_files_by_file_type(
             data.files_selected,
@@ -1242,22 +1225,35 @@ fn organize_files_by_file_type_and_date(
             data.new_directory_name,
             Some(date_type_selected),
         );
-        for (_, directory) in &mut directories_by_file_type {
-            if let Some(files) = directory.get_mut_files().take() {
-                let directories_by_date = organizing::sort_files_by_date(
-                    files,
-                    false,
-                    false,
-                    data.remove_uppercase,
-                    data.replace_spaces_with_underscores,
-                    data.use_only_ascii,
-                    data.new_directory_name,
-                    date_type_selected,
-                );
-                directory.insert_directories(directories_by_date);
+
+        move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type);
+        directory::remove_empty_directories(&mut directories_by_file_type);
+        selected_directory.insert_directories(directories_by_file_type);
+
+        if let Some(directories_by_file_type) = selected_directory.get_mut_directories() {
+            for (_key, directory) in directories_by_file_type {
+                if let Some(files) = directory.get_mut_files().take() {
+                    let mut directories_by_date = organizing::sort_files_by_date(
+                        files,
+                        data.insert_directory_name_to_file_name,
+                        data.insert_date_to_file_name,
+                        data.remove_uppercase,
+                        data.replace_spaces_with_underscores,
+                        data.use_only_ascii,
+                        data.new_directory_name,
+                        date_type_selected,
+                    );
+                    move_files_from_duplicate_directories(directory, &mut directories_by_date);
+                    directory::remove_empty_directories(&mut directories_by_date);
+                    directory.insert_directories(directories_by_date);
+                }
             }
+            return Ok(());
         }
-        Ok(directories_by_file_type)
+        Err(std::io::Error::new(
+            ErrorKind::Other,
+            "No directories by file type found",
+        ))
     } else {
         return Err(std::io::Error::new(
             ErrorKind::InvalidInput,

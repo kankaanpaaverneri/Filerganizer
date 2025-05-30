@@ -273,6 +273,30 @@ fn read_parent_entry(path: &PathBuf, last_directory: &OsStr) -> std::io::Result<
     }
 }
 
+pub fn remove_empty_directories(directories: &mut BTreeMap<OsString, Directory>) {
+    let mut key_list = Vec::new();
+
+    for (key, value) in directories.iter() {
+        let mut is_empty = match value.files {
+            None => true,
+            _ => false,
+        };
+        if is_empty {
+            is_empty = match value.directories {
+                None => true,
+                _ => false,
+            };
+        }
+
+        if is_empty {
+            key_list.push(OsString::from(key));
+        }
+    }
+    for key in key_list {
+        directories.remove(&key);
+    }
+}
+
 fn insert_entries(
     directories: &mut BTreeMap<OsString, Directory>,
     files: &mut BTreeMap<OsString, File>,
