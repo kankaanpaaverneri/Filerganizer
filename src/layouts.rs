@@ -88,7 +88,6 @@ impl Layout {
         if let Some(path) = app.get_path().to_str() {
             container(
                 column![
-                    text("Directory Tree").size(50),
                     column![
                         button("Main Menu")
                             .on_press(Message::SwitchLayout(Layout::Main))
@@ -228,8 +227,8 @@ impl Layout {
 
     fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let mut column = Column::new();
-        let directories_selected = app.get_directories_selected();
-        if let Some(directory_path) = directories_selected.last() {
+        let directory_selected = app.get_directory_selected();
+        if let Some(directory_path) = directory_selected {
             if let Some(last_component) = directory_path.iter().last() {
                 if let Some(dir_name) = last_component.to_str() {
                     let row = row![
@@ -270,7 +269,7 @@ impl Layout {
                 column = column.push(
                     button("Remove all files from selected").on_press(Message::PutAllFilesBack),
                 );
-                if !app.get_directories_selected().is_empty() {
+                if app.get_directory_selected().is_some() {
                     column = column.push(
                         button("Insert selected files to selected directory")
                             .on_press(Message::InsertFilesToSelectedDirectory),
@@ -299,14 +298,15 @@ impl Layout {
             .get_root_directory()
             .get_directory_by_path(app.get_path());
         let mut path_stack = PathBuf::from(app.get_path());
-        let mut path_component_iter: std::slice::Iter<'_, PathBuf> =
+        let mut directories_selected_iter: std::slice::Iter<'_, PathBuf> =
             app.get_directories_selected().iter();
         column = self.display_directories_as_dropdown(
             app,
             root,
             &mut path_stack,
-            &mut path_component_iter,
+            &mut directories_selected_iter,
             column,
+            0,
         );
         if let Some(files) = root.get_files() {
             for key in files.keys() {
@@ -329,35 +329,54 @@ impl Layout {
         &'a self,
         app: &'a App,
         current_directory: &'a Directory,
-        path_stack: &mut PathBuf,
-        path_component_iter: &mut std::slice::Iter<'_, PathBuf>,
+        path: &mut PathBuf,
+        directories_selected_iter: &mut std::slice::Iter<'_, PathBuf>,
         mut column: Column<'a, Message>,
+        call_count: usize,
     ) -> Column<'a, Message> {
-        if let Some(next_path) = path_component_iter.next() {
+        if let Some(next_path) = directories_selected_iter.next() {
             if let Some(next_last) = next_path.iter().last() {
                 if let Some(directories) = current_directory.get_directories() {
                     for (key, directory) in directories {
                         if let Some(directory_name) = key.to_str() {
-                            path_stack.push(key);
-                            column = column.push(
-                                button(directory_name)
-                                    .style(directory_button_style)
-                                    .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
-                            );
-                            path_stack.pop();
+                            path.push(key);
+                            let drop_down_icon = if next_last == key { "|" } else { ">" };
+                            let button_row = if call_count == 0 {
+                                row![
+                                    button(drop_down_icon)
+                                        .style(directory_button_style)
+                                        .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                                    button(directory_name)
+                                        .style(directory_button_style)
+                                        .on_press(Message::SelectDirectory(PathBuf::from(&path)))
+                                ]
+                            } else {
+                                row![
+                                    button(drop_down_icon)
+                                        .style(directory_button_style)
+                                        .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                                    text(directory_name)
+                                ]
+                                .spacing(5)
+                                .align_y(Vertical::Center)
+                            };
+
+                            column = column.push(button_row);
+                            path.pop();
                         }
 
                         if next_last == key {
                             let mut new_column = Column::new();
-                            path_stack.push(key);
+                            path.push(key);
                             new_column = self.display_directories_as_dropdown(
                                 app,
                                 directory,
-                                path_stack,
-                                path_component_iter,
+                                path,
+                                directories_selected_iter,
                                 new_column,
+                                call_count + 1,
                             );
-                            path_stack.pop();
+                            path.pop();
                             new_column = new_column.padding(20).spacing(10);
                             if let Some(files) = directory.get_files() {
                                 for (key, _file) in files {
@@ -372,17 +391,34 @@ impl Layout {
                 }
             }
         } else {
+            // Path final depth
             if let Some(directories) = current_directory.get_directories() {
                 for (key, _) in directories {
                     if let Some(directory_name) = key.to_str() {
-                        path_stack.push(key);
-                        column = column.push(
-                            button(directory_name)
-                                .style(directory_button_style)
-                                .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
-                        );
+                        path.push(key);
+                        let button_row = if call_count == 0 {
+                            row![
+                                button(">")
+                                    .style(directory_button_style)
+                                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                                button(directory_name)
+                                    .style(directory_button_style)
+                                    .on_press(Message::SelectDirectory(PathBuf::from(&path)))
+                            ]
+                        } else {
+                            row![
+                                button(">")
+                                    .style(directory_button_style)
+                                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                                text(directory_name)
+                            ]
+                            .spacing(5)
+                            .align_y(Vertical::Center)
+                        };
+
+                        column = column.push(button_row);
                     }
-                    path_stack.pop();
+                    path.pop();
                 }
             }
         }
@@ -619,6 +655,7 @@ impl Layout {
             let formatted = created.format("%Y-%m-%d %H:%M:%S").to_string();
             row = row.push(text(formatted).width(FillPortion(fill_portion_amount)));
         }
+
         if let Some(accessed) = metadata.get_accessed() {
             let formatted = accessed.format("%Y-%m-%d %H:%M:%S").to_string();
             row = row.push(text(formatted).width(FillPortion(fill_portion_amount)));
@@ -641,7 +678,6 @@ impl Layout {
         } else {
             row = row.push(text("-").width(FillPortion(fill_portion_amount)));
         }
-
         row
     }
 }

@@ -22,6 +22,7 @@ pub struct App {
     directory_view: DirectoryView,
 
     directories_selected: Vec<PathBuf>,
+    directory_selected: Option<PathBuf>,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
@@ -40,6 +41,7 @@ impl Default for App {
             directory_view: DirectoryView::List,
 
             directories_selected: Vec::new(),
+            directory_selected: None,
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
@@ -60,6 +62,7 @@ pub enum Message {
     DropDownDirectory(PathBuf),
 
     SelectPath,
+    ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
     SelectFile(PathBuf),
     SelectAllFiles,
@@ -143,7 +146,7 @@ impl App {
                     return Task::none();
                 }
             },
-            Message::SelectDirectory(path_to_selected_directory) => {
+            Message::ViewDirectory(path_to_selected_directory) => {
                 if self.directories_selected.is_empty() {
                     self.insert_directory_path_to_selected(path_to_selected_directory);
                 } else {
@@ -163,6 +166,19 @@ impl App {
                 }
 
                 Task::none()
+            }
+            Message::SelectDirectory(path_to_directory) => {
+                match self.directory_selected {
+                    Some(ref current_selected) => {
+                        if *current_selected == path_to_directory {
+                            self.directory_selected = None;
+                        } else {
+                            self.directory_selected = Some(path_to_directory);
+                        }
+                    }
+                    None => self.directory_selected = Some(path_to_directory),
+                }
+                return Task::none();
             }
             Message::SelectFile(file_path) => {
                 if let Some(directory) = self.root.get_mut_directory_by_path(&self.path) {
@@ -422,6 +438,10 @@ impl App {
 
     pub fn get_date_type_selected(&self) -> Option<DateType> {
         self.date_type_selected
+    }
+
+    pub fn get_directory_selected(&self) -> &Option<PathBuf> {
+        &self.directory_selected
     }
 
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
@@ -1500,7 +1520,7 @@ mod save_directory {
                 }
                 Err(std::io::Error::new(
                     ErrorKind::NotFound,
-                    "Error parsing file result",
+                    "Cannot select non organized directory.",
                 ))
             }
             Err(error) => Err(error),
