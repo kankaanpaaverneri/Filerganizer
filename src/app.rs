@@ -1040,6 +1040,46 @@ fn move_to_organized_directory(
                 return Err(error);
             }
         }
+    } else if organize_by_filetype {
+        match organize_files_by_file_type(selected_directory, data) {
+            Ok(file_type_directories) => {
+                selected_directory.insert_directories(file_type_directories);
+            }
+            Err(error) => return Err(error),
+        }
+    } else if organize_by_date {
+        match organize_files_by_date(selected_directory, data) {
+            Ok(directories_by_date) => {
+                selected_directory.insert_directories(directories_by_date);
+            }
+            Err(error) => return Err(error),
+        }
+    } else if insert_directory_name_to_file_name
+        || insert_date_to_file_name
+        || remove_uppercase
+        || replace_spaces_with_underscores
+        || use_only_ascii
+    {
+        match rename_and_organize_to_directory(selected_directory, data) {
+            Ok(_) => {}
+            Err(error) => return Err(error),
+        }
+    } else if !organize_by_filetype
+        && !organize_by_filetype
+        && !insert_date_to_file_name
+        && !insert_directory_name_to_file_name
+        && !remove_uppercase
+        && !replace_spaces_with_underscores
+        && !use_only_ascii
+    {
+        for (key, value) in data.files_selected {
+            selected_directory.insert_file(key, value);
+        }
+    } else {
+        return Err(std::io::Error::new(
+            ErrorKind::NotFound,
+            "No selected directory found",
+        ));
     }
 
     Ok(())
@@ -1080,7 +1120,7 @@ fn apply_rules_for_directory(
             Err(error) => return Err(error),
         }
     } else if data.organize_by_filetype {
-        match organize_by_file_type(data) {
+        match organize_files_by_file_type(selected_directory, data) {
             Ok(directories_by_file_type) => {
                 selected_directory
                     .insert_new_sub_directory(&new_directory_name, directories_by_file_type);
@@ -1090,7 +1130,7 @@ fn apply_rules_for_directory(
         }
     } else if data.organize_by_date {
         // If only organize_by_date is checked
-        match organize_to_directories_by_date(data) {
+        match organize_files_by_date(selected_directory, data) {
             Ok(directories_by_date) => {
                 selected_directory
                     .insert_new_sub_directory(&new_directory_name, directories_by_date);
@@ -1104,8 +1144,9 @@ fn apply_rules_for_directory(
         || data.replace_spaces_with_underscores
         || data.use_only_ascii
     {
-        match rename_and_organize_to_directory(data) {
-            Ok(new_directory) => {
+        let mut new_directory = Directory::new(None);
+        match rename_and_organize_to_directory(&mut new_directory, data) {
+            Ok(_) => {
                 selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
@@ -1235,8 +1276,8 @@ fn organize_files_by_file_type_and_date(
                 if let Some(files) = directory.get_mut_files().take() {
                     let mut directories_by_date = organizing::sort_files_by_date(
                         files,
-                        data.insert_directory_name_to_file_name,
-                        data.insert_date_to_file_name,
+                        false,
+                        false,
                         data.remove_uppercase,
                         data.replace_spaces_with_underscores,
                         data.use_only_ascii,
@@ -1262,7 +1303,10 @@ fn organize_files_by_file_type_and_date(
     }
 }
 
-fn organize_by_file_type(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, Directory>> {
+fn organize_files_by_file_type(
+    selected_directory: &mut Directory,
+    data: OrganizingData,
+) -> std::io::Result<BTreeMap<OsString, Directory>> {
     if let None = data.date_type {
         if data.insert_date_to_file_name {
             return Err(std::io::Error::new(
@@ -1271,7 +1315,7 @@ fn organize_by_file_type(data: OrganizingData) -> std::io::Result<BTreeMap<OsStr
             ));
         }
     }
-    let file_type_directories = organizing::sort_files_by_file_type(
+    let mut file_type_directories = organizing::sort_files_by_file_type(
         data.files_selected,
         data.insert_directory_name_to_file_name,
         data.insert_date_to_file_name,
@@ -1281,14 +1325,18 @@ fn organize_by_file_type(data: OrganizingData) -> std::io::Result<BTreeMap<OsStr
         data.new_directory_name,
         data.date_type,
     );
+
+    move_files_from_duplicate_directories(selected_directory, &mut file_type_directories);
+    directory::remove_empty_directories(&mut file_type_directories);
     Ok(file_type_directories)
 }
 
-fn organize_to_directories_by_date(
+fn organize_files_by_date(
+    selected_directory: &mut Directory,
     data: OrganizingData,
 ) -> std::io::Result<BTreeMap<OsString, Directory>> {
     if let Some(date_type) = data.date_type {
-        let directories_by_date = organizing::sort_files_by_date(
+        let mut directories_by_date = organizing::sort_files_by_date(
             data.files_selected.clone(),
             data.insert_directory_name_to_file_name,
             data.insert_date_to_file_name,
@@ -1298,6 +1346,8 @@ fn organize_to_directories_by_date(
             data.new_directory_name,
             date_type,
         );
+        move_files_from_duplicate_directories(selected_directory, &mut directories_by_date);
+        directory::remove_empty_directories(&mut directories_by_date);
         Ok(directories_by_date)
     } else {
         return Err(std::io::Error::new(
@@ -1307,7 +1357,10 @@ fn organize_to_directories_by_date(
     }
 }
 
-fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Directory> {
+fn rename_and_organize_to_directory(
+    selected_directory: &mut Directory,
+    data: OrganizingData,
+) -> std::io::Result<()> {
     if let None = data.date_type {
         if data.insert_date_to_file_name {
             return Err(std::io::Error::new(
@@ -1317,7 +1370,6 @@ fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Dir
         }
     }
     // If only renaming are checked
-    let mut new_directory = Directory::new(None);
     for (key, file) in data.files_selected {
         if let Some(file_name) = key.to_str() {
             let mut renamed_file_name = String::new();
@@ -1333,10 +1385,10 @@ fn rename_and_organize_to_directory(data: OrganizingData) -> std::io::Result<Dir
                 &file,
                 data.date_type,
             );
-            new_directory.insert_file(OsString::from(renamed_file_name), file);
+            selected_directory.insert_file(OsString::from(renamed_file_name), file);
         }
     }
-    Ok(new_directory)
+    Ok(())
 }
 
 mod save_directory {
@@ -1358,16 +1410,15 @@ mod save_directory {
             .open(SAVE_FILE_LOCATION)
         {
             Ok(mut file) => {
-                // Add to existing file
                 if let Some(dir_path) = path.to_str() {
-                    let mut file_content = String::new();
+                    let mut new_directory_data = String::new();
                     write_directory_data_to_string(
-                        &mut file_content,
+                        &mut new_directory_data,
                         dir_path,
                         checkbox_states,
                         date_type,
                     );
-                    file.write(file_content.as_bytes())?;
+                    file.write(new_directory_data.as_bytes())?;
                 } else {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
