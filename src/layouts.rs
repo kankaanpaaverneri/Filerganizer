@@ -46,6 +46,28 @@ impl Default for CheckboxStates {
     }
 }
 
+impl CheckboxStates {
+    pub fn new(
+        organize_by_filetype: bool,
+        organize_by_date: bool,
+        insert_date_to_file_name: bool,
+        insert_directory_name_to_file_name: bool,
+        remove_uppercase: bool,
+        replace_spaces_with_underscores: bool,
+        use_only_ascii: bool,
+    ) -> Self {
+        Self {
+            organize_by_filetype,
+            organize_by_date,
+            insert_date_to_file_name,
+            insert_directory_name_to_file_name,
+            remove_uppercase,
+            replace_spaces_with_underscores,
+            use_only_ascii,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum DirectoryView {
     List,
@@ -244,6 +266,12 @@ impl Layout {
                     column = column.push(button("Extract all files from directory").on_press(
                         Message::ExtractAllContentFromDirectory(PathBuf::from(directory_path)),
                     ));
+                    if app.get_directory_selected().is_some() {
+                        column = column.push(
+                            button("Insert selected files to selected directory")
+                                .on_press(Message::InsertFilesToSelectedDirectory),
+                        );
+                    }
                     column = column.padding(10).spacing(10);
                 }
             }
@@ -269,12 +297,6 @@ impl Layout {
                 column = column.push(
                     button("Remove all files from selected").on_press(Message::PutAllFilesBack),
                 );
-                if app.get_directory_selected().is_some() {
-                    column = column.push(
-                        button("Insert selected files to selected directory")
-                            .on_press(Message::InsertFilesToSelectedDirectory),
-                    );
-                }
                 column = column.push(text("Selected files").size(15));
             }
             if let Some(file_name) = key.to_str() {
@@ -341,25 +363,12 @@ impl Layout {
                         if let Some(directory_name) = key.to_str() {
                             path.push(key);
                             let drop_down_icon = if next_last == key { "|" } else { ">" };
-                            let button_row = if call_count == 0 {
-                                row![
-                                    button(drop_down_icon)
-                                        .style(directory_button_style)
-                                        .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                                    button(directory_name)
-                                        .style(directory_button_style)
-                                        .on_press(Message::SelectDirectory(PathBuf::from(&path)))
-                                ]
-                            } else {
-                                row![
-                                    button(drop_down_icon)
-                                        .style(directory_button_style)
-                                        .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                                    text(directory_name)
-                                ]
-                                .spacing(5)
-                                .align_y(Vertical::Center)
-                            };
+                            let button_row = self.create_directory_buttons_row(
+                                call_count,
+                                drop_down_icon,
+                                directory_name,
+                                path,
+                            );
 
                             column = column.push(button_row);
                             path.pop();
@@ -396,26 +405,12 @@ impl Layout {
                 for (key, _) in directories {
                     if let Some(directory_name) = key.to_str() {
                         path.push(key);
-                        let button_row = if call_count == 0 {
-                            row![
-                                button(">")
-                                    .style(directory_button_style)
-                                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                                button(directory_name)
-                                    .style(directory_button_style)
-                                    .on_press(Message::SelectDirectory(PathBuf::from(&path)))
-                            ]
-                        } else {
-                            row![
-                                button(">")
-                                    .style(directory_button_style)
-                                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                                text(directory_name)
-                            ]
-                            .spacing(5)
-                            .align_y(Vertical::Center)
-                        };
-
+                        let button_row = self.create_directory_buttons_row(
+                            call_count,
+                            ">",
+                            directory_name,
+                            path,
+                        );
                         column = column.push(button_row);
                     }
                     path.pop();
@@ -423,6 +418,34 @@ impl Layout {
             }
         }
         column
+    }
+
+    fn create_directory_buttons_row<'a>(
+        &'a self,
+        call_count: usize,
+        drop_down_icon: &'a str,
+        directory_name: &'a str,
+        path: &PathBuf,
+    ) -> Row<'a, Message> {
+        if call_count == 0 {
+            return row![
+                button(drop_down_icon)
+                    .style(directory_button_style)
+                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                button(directory_name)
+                    .style(directory_button_style)
+                    .on_press(Message::SelectDirectory(PathBuf::from(&path))),
+            ];
+        } else {
+            return row![
+                button(drop_down_icon)
+                    .style(directory_button_style)
+                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
+                text(directory_name)
+            ]
+            .spacing(5)
+            .align_y(Vertical::Center);
+        }
     }
 
     fn insert_search_bar<'a>(&self, app: &'a App, path: &str) -> Row<'a, Message> {

@@ -388,17 +388,14 @@ fn identify_prefix(path: &PathBuf) -> String {
 pub mod organizing {
     use crate::directory::Directory;
     use crate::file::File;
+    use crate::layouts::CheckboxStates;
     use crate::metadata::DateType;
     use std::collections::BTreeMap;
     use std::ffi::OsString;
 
     pub fn sort_files_by_file_type(
         files_selected: BTreeMap<OsString, File>,
-        insert_directory_name_to_file_name: bool,
-        insert_date_to_file_name: bool,
-        remove_uppercase: bool,
-        replace_spaces_with_underscores: bool,
-        use_only_ascii: bool,
+        checkbox_states: &CheckboxStates,
         new_directory_name: &str,
         date_type_selected: Option<DateType>,
     ) -> BTreeMap<OsString, Directory> {
@@ -412,11 +409,7 @@ pub mod organizing {
                         let mut renamed_file_name = String::new();
                         rename_file_name(
                             &mut renamed_file_name,
-                            insert_date_to_file_name,
-                            insert_directory_name_to_file_name,
-                            remove_uppercase,
-                            replace_spaces_with_underscores,
-                            use_only_ascii,
+                            checkbox_states,
                             new_directory_name,
                             file_name,
                             &file,
@@ -432,11 +425,7 @@ pub mod organizing {
 
     pub fn sort_files_by_date(
         files_selected: BTreeMap<OsString, File>,
-        insert_directory_name_to_file_name: bool,
-        insert_date_to_file_name: bool,
-        remove_uppercase: bool,
-        replace_spaces_with_underscores: bool,
-        use_only_ascii: bool,
+        checkbox_states: &CheckboxStates,
         new_directory_name: &str,
         date_type_selected: DateType,
     ) -> BTreeMap<OsString, Directory> {
@@ -448,11 +437,7 @@ pub mod organizing {
                         let mut renamed_file_name = String::new();
                         rename_file_name(
                             &mut renamed_file_name,
-                            insert_date_to_file_name,
-                            insert_directory_name_to_file_name,
-                            remove_uppercase,
-                            replace_spaces_with_underscores,
-                            use_only_ascii,
+                            checkbox_states,
                             new_directory_name,
                             file_name,
                             &file,
@@ -471,22 +456,18 @@ pub mod organizing {
 
     pub fn rename_file_name(
         renamed_file_name: &mut String,
-        insert_date_to_file_name: bool,
-        insert_directory_name_to_file_name: bool,
-        remove_uppercase: bool,
-        replace_spaces_with_underscores: bool,
-        use_only_ascii: bool,
+        checkbox_states: &CheckboxStates,
         new_directory_name: &str,
         file_name: &str,
         file: &File,
         date_type_selected: Option<DateType>,
     ) {
-        if insert_directory_name_to_file_name {
+        if checkbox_states.insert_directory_name_to_file_name {
             renamed_file_name.push_str(new_directory_name);
             renamed_file_name.push('_');
         }
         if let Some(date_type) = date_type_selected {
-            if insert_date_to_file_name {
+            if checkbox_states.insert_date_to_file_name {
                 if let Some(metadata) = file.get_metadata() {
                     if let Some(formatted) = metadata.get_formated_date(date_type) {
                         renamed_file_name.push_str(formatted.as_str());
@@ -496,14 +477,14 @@ pub mod organizing {
             }
         }
         renamed_file_name.push_str(file_name);
-        if remove_uppercase {
+        if checkbox_states.remove_uppercase {
             let lowercase = renamed_file_name.as_str().to_lowercase();
             *renamed_file_name = lowercase;
         }
-        if replace_spaces_with_underscores {
+        if checkbox_states.replace_spaces_with_underscores {
             *renamed_file_name = renamed_file_name.replace(" ", "_");
         }
-        if use_only_ascii {
+        if checkbox_states.use_only_ascii {
             if !renamed_file_name.is_ascii() {
                 *renamed_file_name = replace_non_ascii(renamed_file_name.clone());
             }
