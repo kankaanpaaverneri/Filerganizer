@@ -486,7 +486,6 @@ impl App {
                     self.get_volumes_on_macos();
                     match directory::get_home_directory() {
                         Some(home_path) => {
-                            println!("home_path: {:?}", home_path);
                             self.write_directories_from_path(&home_path)?;
                         }
                         None => {
