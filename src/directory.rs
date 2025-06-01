@@ -22,30 +22,6 @@ impl Directory {
         }
     }
 
-    pub fn insert_new_sub_directory(
-        &mut self,
-        directory_name: &str,
-        directories: BTreeMap<OsString, Directory>,
-    ) {
-        if let Some(sub_directories) = &mut self.directories {
-            sub_directories.insert(
-                OsString::from(directory_name),
-                Directory {
-                    directories: Some(directories),
-                    files: None,
-                    metadata: Some(Metadata::build(
-                        Some(OsString::from(directory_name)),
-                        None,
-                        None,
-                        None,
-                        None,
-                        false,
-                    )),
-                },
-            );
-        }
-    }
-
     pub fn insert_file(&mut self, file_name: OsString, file: File) {
         if let Some(mut files) = self.files.take() {
             files.insert(file_name, file);
@@ -115,6 +91,28 @@ impl Directory {
                         "Duplicate files found in directory",
                     ));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn contains_unique_files_recursive(
+        &self,
+        files_holder: &BTreeMap<OsString, File>,
+    ) -> std::io::Result<()> {
+        if let Some(directories) = self.get_directories() {
+            for (_key, dir) in directories {
+                if let Some(files) = dir.get_files() {
+                    for file_name in files.keys() {
+                        if files_holder.contains_key(file_name) {
+                            return Err(std::io::Error::new(
+                                ErrorKind::InvalidData,
+                                "Duplicate files detected in directories",
+                            ));
+                        }
+                    }
+                }
+                dir.contains_unique_files_recursive(files_holder)?;
             }
         }
         Ok(())
@@ -389,13 +387,9 @@ pub mod system_dir {
     use std::path::PathBuf;
     pub fn get_home_directory() -> Option<PathBuf> {
         let environment_var = match std::env::consts::OS {
-            "windows" => {
-                std::env::var_os("USERPROFILE")
-            }
-            "macos" | "linux" => {
-                std::env::var_os("HOME")
-            },
-            _ => None
+            "windows" => std::env::var_os("USERPROFILE"),
+            "macos" | "linux" => std::env::var_os("HOME"),
+            _ => None,
         };
 
         if let Some(key) = environment_var {

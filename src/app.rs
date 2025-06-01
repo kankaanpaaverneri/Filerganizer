@@ -240,6 +240,7 @@ impl App {
                 while let Some((key, value)) = self.files_selected.pop_last() {
                     files_selected.insert(key, value);
                 }
+
                 match self.create_directory_with_selected_files(files_selected) {
                     Ok(_) => {
                         let mut path_to_directory = PathBuf::from(&self.path);
@@ -381,7 +382,10 @@ impl App {
                     if let Some(selected_dir) =
                         self.root.get_mut_directory_by_path(selected_dir_path)
                     {
-                        match save_directory::read_directory_rules_from_file(&self.home_directory_path, selected_dir_path) {
+                        match save_directory::read_directory_rules_from_file(
+                            &self.home_directory_path,
+                            selected_dir_path,
+                        ) {
                             Ok((checkbox_states, date_type)) => {
                                 if let Some(last) = selected_dir_path.iter().last() {
                                     if let Some(directory_name) = last.to_str() {
@@ -480,10 +484,16 @@ impl App {
                         match directory::system_dir::get_home_directory() {
                             Some(home_directory_path) => {
                                 self.home_directory_path = home_directory_path;
-                                self.write_directories_from_path(&PathBuf::from(&self.home_directory_path))?;
-                            },
+                                self.write_directories_from_path(&PathBuf::from(
+                                    &self.home_directory_path,
+                                ))?;
+                            }
                             None => {
-                                self.error = std::io::Error::new(ErrorKind::NotFound, "Could not find home directory").to_string();
+                                self.error = std::io::Error::new(
+                                    ErrorKind::NotFound,
+                                    "Could not find home directory",
+                                )
+                                .to_string();
                             }
                         }
                         self.update_path_input();
@@ -501,7 +511,9 @@ impl App {
                     match directory::system_dir::get_home_directory() {
                         Some(home_path) => {
                             self.home_directory_path = home_path;
-                            self.write_directories_from_path(&PathBuf::from(&self.home_directory_path))?;
+                            self.write_directories_from_path(&PathBuf::from(
+                                &self.home_directory_path,
+                            ))?;
                         }
                         None => {
                             self.error = std::io::Error::new(
@@ -766,6 +778,16 @@ impl App {
                 "Directory name not specified.",
             ));
         }
+        let mut path_to_directory = PathBuf::from(&self.path);
+        path_to_directory.push(&self.new_directory_name);
+        if let Err(error) =
+            save_directory::read_save_file_content(&self.home_directory_path, &path_to_directory)
+        {
+            if let ErrorKind::Other = error.kind() {
+                return Err(error);
+            }
+        }
+
         Ok(())
     }
 

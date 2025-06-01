@@ -46,20 +46,22 @@ pub fn apply_rules_for_directory(
             Err(error) => return Err(error),
         }
     } else if data.checkbox_states.organize_by_filetype {
-        match organize_files_by_file_type(selected_directory, data) {
+        let mut new_directory = Directory::new(None);
+        match organize_files_by_file_type(&mut new_directory, data) {
             Ok(directories_by_file_type) => {
-                selected_directory
-                    .insert_new_sub_directory(&new_directory_name, directories_by_file_type);
+                new_directory.insert_directories(directories_by_file_type);
+                selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
             Err(error) => return Err(error),
         }
     } else if data.checkbox_states.organize_by_date {
         // If only organize_by_date is checked
-        match organize_files_by_date(selected_directory, data) {
+        let mut new_directory = Directory::new(None);
+        match organize_files_by_date(&mut new_directory, data) {
             Ok(directories_by_date) => {
-                selected_directory
-                    .insert_new_sub_directory(&new_directory_name, directories_by_date);
+                new_directory.insert_directories(directories_by_date);
+                selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -71,11 +73,17 @@ pub fn apply_rules_for_directory(
         || data.checkbox_states.use_only_ascii
     {
         let mut new_directory = Directory::new(None);
-        match rename_and_organize_to_directory(&mut new_directory, data) {
-            Ok(_) => {
-                selected_directory.insert_directory(new_directory, &new_directory_name);
-                return Ok(());
-            }
+        match rename_files(data) {
+            Ok(renamed_files) => match new_directory.contains_unique_files(&renamed_files) {
+                Ok(_) => {
+                    for (file_name, file) in renamed_files {
+                        new_directory.insert_file(file_name, file);
+                    }
+                    selected_directory.insert_directory(new_directory, &new_directory_name);
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            },
             Err(error) => return Err(error),
         }
     } else if !data.checkbox_states.organize_by_filetype
@@ -120,6 +128,10 @@ pub fn move_files_to_organized_directory(
         }
     } else if data.checkbox_states.organize_by_filetype {
         // Check files before inserting
+        if let Err(error) = selected_directory.contains_unique_files_recursive(&data.files_selected)
+        {
+            return Err(error);
+        }
         match organize_files_by_file_type(selected_directory, data) {
             Ok(file_type_directories) => {
                 selected_directory.insert_directories(file_type_directories);
@@ -140,11 +152,16 @@ pub fn move_files_to_organized_directory(
         || data.checkbox_states.replace_spaces_with_underscores
         || data.checkbox_states.use_only_ascii
     {
-        if let Err(error) = selected_directory.contains_unique_files(&data.files_selected) {
-            return Err(error);
-        }
-        match rename_and_organize_to_directory(selected_directory, data) {
-            Ok(_) => {}
+        match rename_files(data) {
+            Ok(renamed_files) => match selected_directory.contains_unique_files(&renamed_files) {
+                Ok(_) => {
+                    for (file_name, file) in renamed_files {
+                        selected_directory.insert_file(file_name, file);
+                    }
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            },
             Err(error) => return Err(error),
         }
     } else if !data.checkbox_states.organize_by_filetype
@@ -183,8 +200,7 @@ fn organize_files_by_file_type_and_date(
             data.new_directory_name,
             Some(date_type_selected),
         );
-
-        move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type);
+        move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type)?;
         directory::remove_empty_directories(&mut directories_by_file_type);
         selected_directory.insert_directories(directories_by_file_type);
 
@@ -197,7 +213,7 @@ fn organize_files_by_file_type_and_date(
                         data.new_directory_name,
                         date_type_selected,
                     );
-                    move_files_from_duplicate_directories(directory, &mut directories_by_date);
+                    move_files_from_duplicate_directories(directory, &mut directories_by_date)?;
                     directory::remove_empty_directories(&mut directories_by_date);
                     directory.insert_directories(directories_by_date);
                 }
@@ -234,8 +250,7 @@ fn organize_files_by_file_type(
         data.new_directory_name,
         data.date_type,
     );
-
-    move_files_from_duplicate_directories(selected_directory, &mut file_type_directories);
+    move_files_from_duplicate_directories(selected_directory, &mut file_type_directories)?;
     directory::remove_empty_directories(&mut file_type_directories);
     Ok(file_type_directories)
 }
@@ -246,12 +261,12 @@ fn organize_files_by_date(
 ) -> std::io::Result<BTreeMap<OsString, Directory>> {
     if let Some(date_type) = data.date_type {
         let mut directories_by_date = directory::organizing::sort_files_by_date(
-            data.files_selected.clone(),
+            data.files_selected,
             &data.checkbox_states,
             data.new_directory_name,
             date_type,
         );
-        move_files_from_duplicate_directories(selected_directory, &mut directories_by_date);
+        move_files_from_duplicate_directories(selected_directory, &mut directories_by_date)?;
         directory::remove_empty_directories(&mut directories_by_date);
         Ok(directories_by_date)
     } else {
@@ -262,10 +277,7 @@ fn organize_files_by_date(
     }
 }
 
-fn rename_and_organize_to_directory(
-    selected_directory: &mut Directory,
-    data: OrganizingData,
-) -> std::io::Result<()> {
+fn rename_files(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, File>> {
     if let None = data.date_type {
         if data.checkbox_states.insert_date_to_file_name {
             return Err(std::io::Error::new(
@@ -274,7 +286,9 @@ fn rename_and_organize_to_directory(
             ));
         }
     }
+
     // If only renaming are checked
+    let mut renamed_files = BTreeMap::new();
     for (key, file) in data.files_selected {
         if let Some(file_name) = key.to_str() {
             let mut renamed_file_name = String::new();
@@ -286,27 +300,31 @@ fn rename_and_organize_to_directory(
                 &file,
                 data.date_type,
             );
-            selected_directory.insert_file(OsString::from(renamed_file_name), file);
+            renamed_files.insert(OsString::from(renamed_file_name), file);
         }
     }
-    Ok(())
+
+    Ok(renamed_files)
 }
 
 fn move_files_from_duplicate_directories(
     selected_directory: &mut Directory,
     new_directories: &mut BTreeMap<OsString, Directory>,
-) {
+) -> std::io::Result<()> {
     if let Some(selected_directories) = selected_directory.get_mut_directories() {
         for (new_key, new_dir) in new_directories {
             if selected_directories.contains_key(new_key) {
                 if let Some(files) = new_dir.get_mut_files().take() {
-                    if let Some(value) = selected_directories.get_mut(new_key) {
+                    if let Some(selected_directory) = selected_directories.get_mut(new_key) {
+                        // Do some checking with the files that overwriting doesn't happen
+                        selected_directory.contains_unique_files(&files)?;
                         for (file_name, file) in files {
-                            value.insert_file(file_name, file);
+                            selected_directory.insert_file(file_name, file);
                         }
                     }
                 }
             }
         }
     }
+    Ok(())
 }

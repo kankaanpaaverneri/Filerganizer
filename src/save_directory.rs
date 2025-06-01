@@ -16,7 +16,6 @@ pub fn write_created_directory_to_save_file(
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
 ) -> std::io::Result<()> {
-    
     match std::fs::File::options()
         .append(true)
         .open(get_save_file_location(home_directory_path))
@@ -61,8 +60,14 @@ pub fn write_created_directory_to_save_file(
     Ok(())
 }
 
-pub fn remove_directory_from_file(home_directory_path: &PathBuf, path_to_extracted_dir: PathBuf) -> std::io::Result<()> {
-    let read_result = match std::fs::File::options().read(true).open(get_save_file_location(home_directory_path)) {
+pub fn remove_directory_from_file(
+    home_directory_path: &PathBuf,
+    path_to_extracted_dir: PathBuf,
+) -> std::io::Result<()> {
+    let read_result = match std::fs::File::options()
+        .read(true)
+        .open(get_save_file_location(home_directory_path))
+    {
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)?;
@@ -102,7 +107,10 @@ pub fn read_directory_rules_from_file(
     home_directory_path: &PathBuf,
     directory_path: &PathBuf,
 ) -> std::io::Result<(CheckboxStates, Option<DateType>)> {
-    match std::fs::File::options().read(true).open(get_save_file_location(home_directory_path)) {
+    match std::fs::File::options()
+        .read(true)
+        .open(get_save_file_location(home_directory_path))
+    {
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)?;
@@ -117,6 +125,35 @@ pub fn read_directory_rules_from_file(
             ))
         }
         Err(error) => Err(error),
+    }
+}
+
+pub fn read_save_file_content(
+    home_directory_path: &PathBuf,
+    directory_path: &PathBuf,
+) -> std::io::Result<()> {
+    match std::fs::File::options()
+        .read(true)
+        .open(get_save_file_location(home_directory_path))
+    {
+        Ok(mut file) => {
+            let mut file_content = String::new();
+            file.read_to_string(&mut file_content)?;
+            if let Some(dir_path) = directory_path.to_str() {
+                for line in file_content.lines() {
+                    if let Some((path, _checkbox_states)) = line.split_once(",") {
+                        if path == dir_path {
+                            return Err(std::io::Error::new(
+                                ErrorKind::Other,
+                                "Similar path already exists in .save_file.csv",
+                            ));
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        Err(error) => return Err(error),
     }
 }
 
