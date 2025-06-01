@@ -6,7 +6,6 @@ use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use crate::app_util;
 use crate::directory::organizing;
 use crate::directory::Directory;
 use crate::file::File;
@@ -14,6 +13,7 @@ use crate::layouts::{CheckboxStates, DirectoryView, Layout};
 use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
+use crate::{app_util, directory};
 
 pub struct App {
     path: PathBuf,
@@ -484,9 +484,20 @@ impl App {
                     path.push("Volumes");
                     self.write_directory_to_tree(&path)?;
                     self.get_volumes_on_macos();
-                    self.write_directories_from_path(&PathBuf::from(
-                        "/Users/vernerikankaanpaa/Downloads",
-                    ))?;
+                    match directory::get_home_directory() {
+                        Some(home_path) => {
+                            println!("home_path: {:?}", home_path);
+                            self.write_directories_from_path(&home_path)?;
+                        }
+                        None => {
+                            self.error = std::io::Error::new(
+                                ErrorKind::NotFound,
+                                "Could not find home directory",
+                            )
+                            .to_string();
+                        }
+                    }
+
                     self.update_path_input();
                     self.layout = Layout::DirectorySelectionLayout;
                     Ok(())

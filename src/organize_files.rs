@@ -140,11 +140,8 @@ pub fn move_files_to_organized_directory(
         || data.checkbox_states.replace_spaces_with_underscores
         || data.checkbox_states.use_only_ascii
     {
-        if !files_are_unique(selected_directory, &data.files_selected) {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "Duplicate file names found",
-            ));
+        if let Err(error) = selected_directory.contains_unique_files(&data.files_selected) {
+            return Err(error);
         }
         match rename_and_organize_to_directory(selected_directory, data) {
             Ok(_) => {}
@@ -158,11 +155,8 @@ pub fn move_files_to_organized_directory(
         && !data.checkbox_states.replace_spaces_with_underscores
         && !data.checkbox_states.use_only_ascii
     {
-        if !files_are_unique(selected_directory, &data.files_selected) {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "Duplicate file names found",
-            ));
+        if let Err(error) = selected_directory.contains_unique_files(&data.files_selected) {
+            return Err(error);
         }
 
         for (key, value) in data.files_selected {
@@ -315,18 +309,4 @@ fn move_files_from_duplicate_directories(
             }
         }
     }
-}
-
-fn files_are_unique(
-    selected_directory: &Directory,
-    files_selected: &BTreeMap<OsString, File>,
-) -> bool {
-    if let Some(files) = selected_directory.get_files() {
-        for key in files_selected.keys() {
-            if files.contains_key(key) {
-                return false;
-            }
-        }
-    }
-    return true;
 }

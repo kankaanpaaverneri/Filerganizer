@@ -103,7 +103,7 @@ impl Directory {
         Ok(())
     }
 
-    fn contains_unique_files(
+    pub fn contains_unique_files(
         &self,
         files_holder: &BTreeMap<OsString, File>,
     ) -> std::io::Result<()> {
@@ -383,6 +383,13 @@ fn identify_prefix(path: &PathBuf) -> String {
         })
         .collect();
     first_two_components.join("/")
+}
+
+pub fn get_home_directory() -> Option<PathBuf> {
+    if let Some(key) = std::env::var_os("HOME") {
+        return Some(PathBuf::from(key));
+    }
+    None
 }
 
 pub mod organizing {
