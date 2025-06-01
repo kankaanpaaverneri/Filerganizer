@@ -385,11 +385,24 @@ fn identify_prefix(path: &PathBuf) -> String {
     first_two_components.join("/")
 }
 
-pub fn get_home_directory() -> Option<PathBuf> {
-    if let Some(key) = std::env::var_os("HOME") {
-        return Some(PathBuf::from(key));
+pub mod system_dir {
+    use std::path::PathBuf;
+    pub fn get_home_directory() -> Option<PathBuf> {
+        let environment_var = match std::env::consts::OS {
+            "windows" => {
+                std::env::var_os("USERPROFILE")
+            }
+            "macos" | "linux" => {
+                std::env::var_os("HOME")
+            },
+            _ => None
+        };
+
+        if let Some(key) = environment_var {
+            return Some(PathBuf::from(key));
+        }
+        None
     }
-    None
 }
 
 pub mod organizing {

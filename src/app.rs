@@ -16,6 +16,7 @@ use crate::save_directory;
 use crate::{app_util, directory};
 
 pub struct App {
+    home_directory_path: PathBuf,
     path: PathBuf,
     path_input: String,
     error: String,
@@ -35,6 +36,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         App {
+            home_directory_path: PathBuf::default(),
             path: PathBuf::new(),
             path_input: String::new(),
             error: String::new(),
@@ -244,6 +246,7 @@ impl App {
                         path_to_directory.push(&self.new_directory_name);
 
                         match save_directory::write_created_directory_to_save_file(
+                            &self.home_directory_path,
                             path_to_directory,
                             self.checkbox_states.clone(),
                             self.date_type_selected,
@@ -336,6 +339,7 @@ impl App {
                     ) {
                         Ok(_) => {
                             match save_directory::remove_directory_from_file(
+                                &self.home_directory_path,
                                 path_to_selected_directory,
                             ) {
                                 Ok(_) => {}
@@ -358,6 +362,7 @@ impl App {
                     ) {
                         Ok(_) => {
                             match save_directory::remove_directory_from_file(
+                                &self.home_directory_path,
                                 path_to_selected_directory,
                             ) {
                                 Ok(_) => {}
@@ -376,7 +381,7 @@ impl App {
                     if let Some(selected_dir) =
                         self.root.get_mut_directory_by_path(selected_dir_path)
                     {
-                        match save_directory::read_directory_rules_from_file(selected_dir_path) {
+                        match save_directory::read_directory_rules_from_file(&self.home_directory_path, selected_dir_path) {
                             Ok((checkbox_states, date_type)) => {
                                 if let Some(last) = selected_dir_path.iter().last() {
                                     if let Some(directory_name) = last.to_str() {
@@ -472,6 +477,15 @@ impl App {
                             self.external_storage.insert(path);
                         }
                         self.insert_root_directory(&path);
+                        match directory::system_dir::get_home_directory() {
+                            Some(home_directory_path) => {
+                                self.home_directory_path = home_directory_path;
+                                self.write_directories_from_path(&PathBuf::from(&self.home_directory_path))?;
+                            },
+                            None => {
+                                self.error = std::io::Error::new(ErrorKind::NotFound, "Could not find home directory").to_string();
+                            }
+                        }
                         self.update_path_input();
                     }
                     self.layout = Layout::DirectorySelectionLayout;
@@ -484,9 +498,10 @@ impl App {
                     path.push("Volumes");
                     self.write_directory_to_tree(&path)?;
                     self.get_volumes_on_macos();
-                    match directory::get_home_directory() {
+                    match directory::system_dir::get_home_directory() {
                         Some(home_path) => {
-                            self.write_directories_from_path(&home_path)?;
+                            self.home_directory_path = home_path;
+                            self.write_directories_from_path(&PathBuf::from(&self.home_directory_path))?;
                         }
                         None => {
                             self.error = std::io::Error::new(

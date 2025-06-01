@@ -3,19 +3,26 @@ use std::{
     io::{ErrorKind, Read, Write},
     path::PathBuf,
 };
-const SAVE_FILE_LOCATION: &str =
-    "/Users/vernerikankaanpaa/RustProjects/filerganizer/.save_file.csv";
+
+fn get_save_file_location(home_directory_path: &PathBuf) -> PathBuf {
+    let mut path_to_save_file = PathBuf::from(home_directory_path);
+    path_to_save_file.push(".save_file.csv");
+    path_to_save_file
+}
+
 pub fn write_created_directory_to_save_file(
-    path: PathBuf,
+    home_directory_path: &PathBuf,
+    directory_path: PathBuf,
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
 ) -> std::io::Result<()> {
+    
     match std::fs::File::options()
         .append(true)
-        .open(SAVE_FILE_LOCATION)
+        .open(get_save_file_location(home_directory_path))
     {
         Ok(mut file) => {
-            if let Some(dir_path) = path.to_str() {
+            if let Some(dir_path) = directory_path.to_str() {
                 let mut new_directory_data = String::new();
                 write_directory_data_to_string(
                     &mut new_directory_data,
@@ -33,8 +40,8 @@ pub fn write_created_directory_to_save_file(
         }
         Err(_) => {
             // Create file
-            let mut save_file = create_save_file()?;
-            if let Some(dir_path) = path.to_str() {
+            let mut save_file = create_save_file(home_directory_path)?;
+            if let Some(dir_path) = directory_path.to_str() {
                 let mut file_content = String::from("path, organize_by_file_type, organize_by_date, insert_date_to_file_name, insert_directory_name_to_file_name, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, date_type\n");
                 write_directory_data_to_string(
                     &mut file_content,
@@ -54,8 +61,8 @@ pub fn write_created_directory_to_save_file(
     Ok(())
 }
 
-pub fn remove_directory_from_file(path_to_extracted_dir: PathBuf) -> std::io::Result<()> {
-    let read_result = match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
+pub fn remove_directory_from_file(home_directory_path: &PathBuf, path_to_extracted_dir: PathBuf) -> std::io::Result<()> {
+    let read_result = match std::fs::File::options().read(true).open(get_save_file_location(home_directory_path)) {
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)?;
@@ -85,20 +92,21 @@ pub fn remove_directory_from_file(path_to_extracted_dir: PathBuf) -> std::io::Re
     let mut file = std::fs::File::options()
         .truncate(true)
         .write(true)
-        .open(SAVE_FILE_LOCATION)?;
+        .open(get_save_file_location(home_directory_path))?;
     file.set_len(0)?;
     file.write(updated_file_content.as_bytes())?;
     Ok(())
 }
 
 pub fn read_directory_rules_from_file(
-    path: &PathBuf,
+    home_directory_path: &PathBuf,
+    directory_path: &PathBuf,
 ) -> std::io::Result<(CheckboxStates, Option<DateType>)> {
-    match std::fs::File::options().read(true).open(SAVE_FILE_LOCATION) {
+    match std::fs::File::options().read(true).open(get_save_file_location(home_directory_path)) {
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)?;
-            if let Some(list_of_rules) = parse_file_result(buffer.as_str(), path) {
+            if let Some(list_of_rules) = parse_file_result(buffer.as_str(), directory_path) {
                 let checkbox_states = parse_rules(&list_of_rules);
                 let date_type = parse_date_type(&list_of_rules);
                 return Ok((checkbox_states, date_type));
@@ -172,8 +180,8 @@ fn parse_file_result<'a>(buffer: &'a str, path: &'a PathBuf) -> Option<Vec<&'a s
     None
 }
 
-fn create_save_file() -> std::io::Result<std::fs::File> {
-    match std::fs::File::create(SAVE_FILE_LOCATION) {
+fn create_save_file(home_directory_path: &PathBuf) -> std::io::Result<std::fs::File> {
+    match std::fs::File::create(get_save_file_location(home_directory_path)) {
         Ok(file) => Ok(file),
         Err(error) => Err(error),
     }
