@@ -178,6 +178,13 @@ impl Directory {
         current_directory
     }
 
+    pub fn get_file_count(&self) -> usize {
+        if let Some(files) = &self.files {
+            return files.len();
+        }
+        0
+    }
+
     pub fn clear_directory_content(&mut self) {
         if let Some(directories) = self.directories.as_mut() {
             directories.clear();
@@ -400,6 +407,7 @@ pub mod system_dir {
 }
 
 pub mod organizing {
+    use crate::app::filename_components;
     use crate::directory::Directory;
     use crate::file::File;
     use crate::layouts::CheckboxStates;
@@ -407,10 +415,32 @@ pub mod organizing {
     use std::collections::BTreeMap;
     use std::ffi::OsString;
 
+    struct FilenameComponents {
+        date: String,
+        directory_name: String,
+        custom_name: String,
+        original_name: String,
+        file_type: String,
+    }
+
+    impl FilenameComponents {
+        pub fn new() -> Self {
+            Self {
+                date: String::new(),
+                directory_name: String::new(),
+                custom_name: String::new(),
+                original_name: String::new(),
+                file_type: String::new(),
+            }
+        }
+    }
+
     pub fn sort_files_by_file_type(
         files_selected: BTreeMap<OsString, File>,
         checkbox_states: &CheckboxStates,
         new_directory_name: &str,
+        custom_file_name: &str,
+        file_name_component_order: &Vec<String>,
         date_type_selected: Option<DateType>,
     ) -> BTreeMap<OsString, Directory> {
         let mut file_type_directories = get_file_types(&files_selected);
@@ -419,17 +449,23 @@ pub mod organizing {
             if let Some(file_name) = key.to_str() {
                 let splitted: Vec<_> = file_name.split(".").collect();
                 if let Some(file_type) = splitted.last() {
-                    if let Some(dir) = file_type_directories.get_mut(&OsString::from(file_type)) {
+                    if let Some(file_type_dir) =
+                        file_type_directories.get_mut(&OsString::from(file_type))
+                    {
                         let mut renamed_file_name = String::new();
+                        let file_count = file_type_dir.get_file_count();
                         rename_file_name(
                             &mut renamed_file_name,
                             checkbox_states,
                             new_directory_name,
+                            custom_file_name,
+                            file_count,
+                            file_name_component_order,
                             file_name,
                             &file,
                             date_type_selected,
                         );
-                        dir.insert_file(OsString::from(renamed_file_name), file);
+                        file_type_dir.insert_file(OsString::from(renamed_file_name), file);
                     }
                 }
             }
@@ -441,24 +477,31 @@ pub mod organizing {
         files_selected: BTreeMap<OsString, File>,
         checkbox_states: &CheckboxStates,
         new_directory_name: &str,
+        custom_file_name: &str,
+        file_name_component_order: &Vec<String>,
         date_type_selected: DateType,
     ) -> BTreeMap<OsString, Directory> {
         let mut file_date_directories = get_file_dates(&files_selected, date_type_selected);
+
         for (key, file) in files_selected {
             if let Some(file_name) = key.to_str() {
                 if let Some(metadata) = file.get_metadata() {
                     if let Some(formatted) = metadata.get_formated_date(date_type_selected) {
-                        let mut renamed_file_name = String::new();
-                        rename_file_name(
-                            &mut renamed_file_name,
-                            checkbox_states,
-                            new_directory_name,
-                            file_name,
-                            &file,
-                            Some(date_type_selected),
-                        );
                         if let Some(dir) = file_date_directories.get_mut(&OsString::from(formatted))
                         {
+                            let mut renamed_file_name = String::new();
+                            let file_count = dir.get_file_count();
+                            rename_file_name(
+                                &mut renamed_file_name,
+                                checkbox_states,
+                                new_directory_name,
+                                custom_file_name,
+                                file_count,
+                                file_name_component_order,
+                                file_name,
+                                &file,
+                                Some(date_type_selected),
+                            );
                             dir.insert_file(OsString::from(renamed_file_name), file);
                         }
                     }
@@ -472,37 +515,111 @@ pub mod organizing {
         renamed_file_name: &mut String,
         checkbox_states: &CheckboxStates,
         new_directory_name: &str,
+        custom_file_name: &str,
+        file_count: usize,
+        file_name_component_order: &Vec<String>,
         file_name: &str,
         file: &File,
         date_type_selected: Option<DateType>,
     ) {
+        let FilenameComponents {
+            mut date,
+            mut directory_name,
+            mut custom_name,
+            mut original_name,
+            mut file_type,
+        } = FilenameComponents::new();
         if checkbox_states.insert_directory_name_to_file_name {
-            renamed_file_name.push_str(new_directory_name);
-            renamed_file_name.push('_');
+            directory_name.push_str(new_directory_name);
         }
         if let Some(date_type) = date_type_selected {
             if checkbox_states.insert_date_to_file_name {
                 if let Some(metadata) = file.get_metadata() {
                     if let Some(formatted) = metadata.get_formated_date(date_type) {
-                        renamed_file_name.push_str(formatted.as_str());
-                        renamed_file_name.push('_');
+                        date.push_str(formatted.as_str());
                     }
                 }
             }
         }
-        renamed_file_name.push_str(file_name);
+
+        if !checkbox_states.remove_original_file_name {
+            original_name = get_file_name_without_file_type(file_name);
+        }
+
+        if checkbox_states.add_custom_name {
+            custom_name = String::from(custom_file_name);
+            let file_count_str = (file_count + 1).to_string();
+            let mut file_name_prefix = String::new();
+            file_name_prefix.push('_');
+            file_name_prefix.push('0');
+            file_name_prefix.push_str(&file_count_str);
+            custom_name.push_str(&file_name_prefix);
+        }
+
+        if let Some(file_type_ref) = get_file_type_from_file_name(file_name) {
+            file_type.push('.');
+            file_type.push_str(file_type_ref);
+        }
+
         if checkbox_states.remove_uppercase {
-            let lowercase = renamed_file_name.as_str().to_lowercase();
-            *renamed_file_name = lowercase;
+            custom_name = custom_name.as_str().to_lowercase();
+            date = date.as_str().to_lowercase();
+            directory_name = directory_name.as_str().to_lowercase();
+            original_name = original_name.as_str().to_lowercase();
+            file_type = file_type.as_str().to_lowercase();
         }
-        if checkbox_states.replace_spaces_with_underscores {
-            *renamed_file_name = renamed_file_name.replace(" ", "_");
-        }
+
         if checkbox_states.use_only_ascii {
-            if !renamed_file_name.is_ascii() {
-                *renamed_file_name = replace_non_ascii(renamed_file_name.clone());
+            if !custom_name.is_ascii() {
+                custom_name = replace_non_ascii(custom_name.clone());
+            }
+            if !date.is_ascii() {
+                date = replace_non_ascii(date.clone());
+            }
+
+            if !directory_name.is_ascii() {
+                directory_name = replace_non_ascii(directory_name.clone());
+            }
+
+            if !original_name.is_ascii() {
+                original_name = replace_non_ascii(original_name.clone());
             }
         }
+
+        if let Some(last) = file_name_component_order.last() {
+            for component in file_name_component_order {
+                if *component == String::from(filename_components::DATE) {
+                    renamed_file_name.push_str(date.as_str());
+                } else if *component == String::from(filename_components::CUSTOM_FILE_NAME) {
+                    renamed_file_name.push_str(custom_name.as_str());
+                } else if *component == String::from(filename_components::DIRECTORY_NAME) {
+                    renamed_file_name.push_str(directory_name.as_str());
+                } else if *component == String::from(filename_components::ORIGINAL_FILENAME) {
+                    renamed_file_name.push_str(original_name.as_str());
+                }
+                if checkbox_states.replace_spaces_with_underscores && component != last {
+                    renamed_file_name.push('_');
+                }
+            }
+            renamed_file_name.push_str(file_type.as_str());
+        }
+    }
+
+    pub fn get_file_type_from_file_name(file_name: &str) -> Option<&str> {
+        let splitted: Vec<_> = file_name.split(".").collect();
+        if let Some(file_type) = splitted.iter().last() {
+            return Some(*file_type);
+        }
+        None
+    }
+
+    pub fn get_file_name_without_file_type(file_name: &str) -> String {
+        let mut splitted: Vec<_> = file_name.split(".").collect();
+        if splitted.len() > 1 {
+            splitted.pop();
+        }
+
+        splitted.concat()
     }
 
     fn replace_non_ascii(text: String) -> String {

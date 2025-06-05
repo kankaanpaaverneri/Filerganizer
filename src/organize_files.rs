@@ -11,6 +11,8 @@ pub struct OrganizingData<'a> {
     files_selected: BTreeMap<OsString, File>,
     checkbox_states: CheckboxStates,
     new_directory_name: &'a str,
+    custom_file_name: &'a str,
+    file_name_component_order: &'a Vec<String>,
     date_type: Option<DateType>,
 }
 
@@ -19,12 +21,16 @@ impl<'a> OrganizingData<'a> {
         files_selected: BTreeMap<OsString, File>,
         checkbox_states: CheckboxStates,
         new_directory_name: &'a str,
+        custom_file_name: &'a str,
+        file_name_component_order: &'a Vec<String>,
         date_type: Option<DateType>,
     ) -> Self {
         Self {
             files_selected,
             checkbox_states,
             new_directory_name,
+            custom_file_name,
+            file_name_component_order,
             date_type,
         }
     }
@@ -71,6 +77,8 @@ pub fn apply_rules_for_directory(
         || data.checkbox_states.remove_uppercase
         || data.checkbox_states.replace_spaces_with_underscores
         || data.checkbox_states.use_only_ascii
+        || data.checkbox_states.remove_original_file_name
+        || data.checkbox_states.add_custom_name
     {
         let mut new_directory = Directory::new(None);
         match rename_files(data) {
@@ -93,6 +101,8 @@ pub fn apply_rules_for_directory(
         && !data.checkbox_states.remove_uppercase
         && !data.checkbox_states.replace_spaces_with_underscores
         && !data.checkbox_states.use_only_ascii
+        && !data.checkbox_states.remove_original_file_name
+        && !data.checkbox_states.add_custom_name
     {
         let mut new_directory = Directory::new(None);
         for (key, value) in data.files_selected {
@@ -111,6 +121,8 @@ pub fn move_files_to_organized_directory(
     files_selected: BTreeMap<OsString, File>,
     selected_directory: &mut Directory,
     directory_name: &str,
+    custom_file_name: &str,
+    file_name_component_order: &Vec<String>,
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
 ) -> std::io::Result<()> {
@@ -118,6 +130,8 @@ pub fn move_files_to_organized_directory(
         files_selected,
         checkbox_states,
         new_directory_name: directory_name,
+        file_name_component_order,
+        custom_file_name,
         date_type,
     };
     if data.checkbox_states.organize_by_filetype && data.checkbox_states.organize_by_date {
@@ -151,6 +165,8 @@ pub fn move_files_to_organized_directory(
         || data.checkbox_states.remove_uppercase
         || data.checkbox_states.replace_spaces_with_underscores
         || data.checkbox_states.use_only_ascii
+        || data.checkbox_states.remove_original_file_name
+        || data.checkbox_states.add_custom_name
     {
         match rename_files(data) {
             Ok(renamed_files) => match selected_directory.contains_unique_files(&renamed_files) {
@@ -171,6 +187,8 @@ pub fn move_files_to_organized_directory(
         && !data.checkbox_states.remove_uppercase
         && !data.checkbox_states.replace_spaces_with_underscores
         && !data.checkbox_states.use_only_ascii
+        && !data.checkbox_states.remove_original_file_name
+        && !data.checkbox_states.add_custom_name
     {
         if let Err(error) = selected_directory.contains_unique_files(&data.files_selected) {
             return Err(error);
@@ -198,6 +216,8 @@ fn organize_files_by_file_type_and_date(
             data.files_selected,
             &data.checkbox_states,
             data.new_directory_name,
+            data.custom_file_name,
+            data.file_name_component_order,
             Some(date_type_selected),
         );
         move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type)?;
@@ -211,6 +231,8 @@ fn organize_files_by_file_type_and_date(
                         files,
                         &CheckboxStates::default(),
                         data.new_directory_name,
+                        data.custom_file_name,
+                        data.file_name_component_order,
                         date_type_selected,
                     );
                     move_files_from_duplicate_directories(directory, &mut directories_by_date)?;
@@ -248,6 +270,8 @@ fn organize_files_by_file_type(
         data.files_selected,
         &data.checkbox_states,
         data.new_directory_name,
+        data.custom_file_name,
+        data.file_name_component_order,
         data.date_type,
     );
     move_files_from_duplicate_directories(selected_directory, &mut file_type_directories)?;
@@ -264,6 +288,8 @@ fn organize_files_by_date(
             data.files_selected,
             &data.checkbox_states,
             data.new_directory_name,
+            data.custom_file_name,
+            data.file_name_component_order,
             date_type,
         );
         move_files_from_duplicate_directories(selected_directory, &mut directories_by_date)?;
@@ -292,10 +318,14 @@ fn rename_files(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, File
     for (key, file) in data.files_selected {
         if let Some(file_name) = key.to_str() {
             let mut renamed_file_name = String::new();
+            let file_count = renamed_files.len();
             directory::organizing::rename_file_name(
                 &mut renamed_file_name,
                 &data.checkbox_states,
                 data.new_directory_name,
+                data.custom_file_name,
+                file_count,
+                data.file_name_component_order,
                 file_name,
                 &file,
                 data.date_type,

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::directory::organizing;
 use crate::directory::Directory;
 use crate::file::File;
-use crate::layouts::{CheckboxStates, DirectoryView, Layout};
+use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
 use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
@@ -31,6 +31,16 @@ pub struct App {
     new_directory_name: String,
     checkbox_states: CheckboxStates,
     date_type_selected: Option<DateType>,
+    filename_input: String,
+    order_of_filename_components: Vec<String>,
+    index_position: Option<IndexPosition>,
+}
+
+pub mod filename_components {
+    pub const DATE: &str = "Date";
+    pub const ORIGINAL_FILENAME: &str = "Original filename";
+    pub const DIRECTORY_NAME: &str = "Directory name";
+    pub const CUSTOM_FILE_NAME: &str = "Custom filename";
 }
 
 impl Default for App {
@@ -51,6 +61,9 @@ impl Default for App {
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
             date_type_selected: None,
+            filename_input: String::new(),
+            order_of_filename_components: Vec::new(),
+            index_position: None,
         }
     }
 }
@@ -80,6 +93,8 @@ pub enum Message {
     ExtractContentFromDirectory(PathBuf),
     ExtractAllContentFromDirectory(PathBuf),
     InsertFilesToSelectedDirectory,
+    FilenameInput(String),
+    IndexPositionSelected(IndexPosition),
     Back,
     Exit,
 }
@@ -93,6 +108,7 @@ impl App {
         self.error.clear();
         match message {
             Message::SwitchLayout(layout) => {
+                self.init_app_data();
                 if let Err(error) = self.switch_layout(&layout) {
                     self.error = error.to_string();
                 }
@@ -271,11 +287,15 @@ impl App {
                 let replace_spaces_with_underscores =
                     self.checkbox_states.replace_spaces_with_underscores;
                 let use_only_ascii = self.checkbox_states.use_only_ascii;
+                let replace_original_file_name = self.checkbox_states.remove_original_file_name;
+                let add_custom_name = self.checkbox_states.add_custom_name;
 
                 if insert_date_to_file_name
                     || remove_uppercase
                     || replace_spaces_with_underscores
                     || use_only_ascii
+                    || replace_original_file_name
+                    || add_custom_name
                 {
                     if insert_date_to_file_name {
                         if let Some(date_type) = self.date_type_selected {
@@ -288,6 +308,8 @@ impl App {
                                     remove_uppercase,
                                     replace_spaces_with_underscores,
                                     use_only_ascii,
+                                    replace_original_file_name,
+                                    add_custom_name,
                                 ),
                                 Some(date_type),
                             );
@@ -309,6 +331,8 @@ impl App {
                                 remove_uppercase,
                                 replace_spaces_with_underscores,
                                 use_only_ascii,
+                                replace_original_file_name,
+                                add_custom_name,
                             ),
                             None,
                         );
@@ -394,6 +418,8 @@ impl App {
                                                 self.files_selected.clone(),
                                                 selected_dir,
                                                 directory_name,
+                                                &self.filename_input,
+                                                &self.order_of_filename_components,
                                                 checkbox_states,
                                                 date_type,
                                             )
@@ -412,6 +438,17 @@ impl App {
                     }
                 }
                 Task::none()
+            }
+            Message::FilenameInput(input) => {
+                self.filename_input = input;
+                Task::none()
+            }
+            Message::IndexPositionSelected(index_position) => {
+                match index_position {
+                    IndexPosition::Before => self.index_position = Some(IndexPosition::Before),
+                    IndexPosition::After => self.index_position = Some(IndexPosition::After),
+                }
+                return Task::none();
             }
             Message::Back => {
                 self.init_app_data();
@@ -469,6 +506,18 @@ impl App {
 
     pub fn get_directory_selected(&self) -> &Option<PathBuf> {
         &self.directory_selected
+    }
+
+    pub fn get_filename_input(&self) -> &String {
+        &self.filename_input
+    }
+
+    pub fn get_order_of_filename_components(&self) -> &Vec<String> {
+        &self.order_of_filename_components
+    }
+
+    pub fn get_index_position(&self) -> Option<IndexPosition> {
+        self.index_position
     }
 
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
@@ -547,6 +596,8 @@ impl App {
     }
 
     fn init_app_data(&mut self) {
+        self.order_of_filename_components
+            .push(String::from("Original filename"));
         self.directories_selected.clear();
         self.date_type_selected = None;
         self.files_selected.clear();
@@ -788,6 +839,13 @@ impl App {
             }
         }
 
+        if self.checkbox_states.remove_original_file_name && self.filename_input.is_empty() {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "If original file name is removed add custom name",
+            ));
+        }
+
         Ok(())
     }
 
@@ -813,6 +871,8 @@ impl App {
                 files_selected,
                 self.checkbox_states.clone(),
                 &self.new_directory_name,
+                &self.filename_input,
+                &self.order_of_filename_components,
                 self.date_type_selected,
             );
 
@@ -842,10 +902,14 @@ impl App {
             while let Some((key, value)) = self.files_selected.pop_last() {
                 if let Some(file_name) = key.to_str() {
                     let mut renamed_file_name = String::new();
+                    let file_count = selected_dir.get_file_count();
                     organizing::rename_file_name(
                         &mut renamed_file_name,
                         &checkbox_states,
                         &self.new_directory_name,
+                        &self.filename_input,
+                        file_count,
+                        &self.order_of_filename_components,
                         file_name,
                         &value,
                         date_type,
@@ -871,9 +935,25 @@ impl App {
             }
             3 => {
                 self.checkbox_states.insert_date_to_file_name = toggle;
+                if toggle {
+                    self.order_of_filename_components
+                        .push(String::from(filename_components::DATE));
+                } else {
+                    self.filter_order_of_filename_components(String::from(
+                        filename_components::DATE,
+                    ));
+                }
             }
             4 => {
                 self.checkbox_states.insert_directory_name_to_file_name = toggle;
+                if toggle {
+                    self.order_of_filename_components
+                        .push(String::from(filename_components::DIRECTORY_NAME));
+                } else {
+                    self.filter_order_of_filename_components(String::from(
+                        filename_components::DIRECTORY_NAME,
+                    ));
+                }
             }
             5 => {
                 self.checkbox_states.remove_uppercase = toggle;
@@ -884,8 +964,47 @@ impl App {
             7 => {
                 self.checkbox_states.use_only_ascii = toggle;
             }
+            8 => {
+                self.checkbox_states.remove_original_file_name = toggle;
+                if toggle {
+                    self.filter_order_of_filename_components(String::from(
+                        filename_components::ORIGINAL_FILENAME,
+                    ));
+                    self.checkbox_states.add_custom_name = true;
+                } else {
+                    self.order_of_filename_components
+                        .push(String::from(filename_components::ORIGINAL_FILENAME));
+                }
+            }
+            9 => {
+                if self.checkbox_states.remove_original_file_name {
+                    return;
+                }
+                self.checkbox_states.add_custom_name = toggle;
+                if toggle {
+                    self.order_of_filename_components
+                        .push(String::from(filename_components::CUSTOM_FILE_NAME));
+                } else {
+                    self.filter_order_of_filename_components(String::from(
+                        filename_components::CUSTOM_FILE_NAME,
+                    ));
+                }
+            }
             _ => {}
         }
+    }
+
+    fn filter_order_of_filename_components(&mut self, filter_value: String) {
+        self.order_of_filename_components = self
+            .order_of_filename_components
+            .iter()
+            .filter_map(|element| {
+                if *element == filter_value {
+                    return None;
+                }
+                Some((*element).clone())
+            })
+            .collect();
     }
 
     fn extract_content_from_directory(

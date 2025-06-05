@@ -30,6 +30,14 @@ pub struct CheckboxStates {
     pub remove_uppercase: bool,
     pub replace_spaces_with_underscores: bool,
     pub use_only_ascii: bool,
+    pub remove_original_file_name: bool,
+    pub add_custom_name: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexPosition {
+    Before,
+    After,
 }
 
 impl Default for CheckboxStates {
@@ -42,6 +50,8 @@ impl Default for CheckboxStates {
             remove_uppercase: false,
             replace_spaces_with_underscores: false,
             use_only_ascii: false,
+            remove_original_file_name: false,
+            add_custom_name: false,
         }
     }
 }
@@ -55,6 +65,8 @@ impl CheckboxStates {
         remove_uppercase: bool,
         replace_spaces_with_underscores: bool,
         use_only_ascii: bool,
+        remove_original_file_name: bool,
+        add_custom_name: bool,
     ) -> Self {
         Self {
             organize_by_filetype,
@@ -64,6 +76,8 @@ impl CheckboxStates {
             remove_uppercase,
             replace_spaces_with_underscores,
             use_only_ascii,
+            remove_original_file_name,
+            add_custom_name,
         }
     }
 }
@@ -185,7 +199,7 @@ impl Layout {
         }
     }
 
-    fn rules_for_directory(&self, app: &App) -> Column<Message> {
+    fn rules_for_directory<'a>(&'a self, app: &'a App) -> Column<Message> {
         let created = radio(
             "Created",
             DateType::Created,
@@ -242,9 +256,66 @@ impl Layout {
                     "Use ascii characters only",
                     app.get_checkbox_states().use_only_ascii
                 )
-                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 7) })
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 7) }),
+                checkbox(
+                    "Remove original file name",
+                    app.get_checkbox_states().remove_original_file_name
+                )
+                .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 8) }),
+                row![
+                    checkbox(
+                        "Add custom name to file name",
+                        app.get_checkbox_states().add_custom_name
+                    )
+                    .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 9) }),
+                    self.custom_name_box(app)
+                ]
+                .align_y(Vertical::Center)
+                .spacing(5)
             ],
+            column![self.order_of_file_name_components(app),]
         ]
+    }
+
+    fn custom_name_box(&self, app: &App) -> Row<Message> {
+        let index_before = radio(
+            "Prefix",
+            IndexPosition::Before,
+            app.get_index_position(),
+            Message::IndexPositionSelected,
+        );
+
+        let index_after = radio(
+            "Suffix",
+            IndexPosition::After,
+            app.get_index_position(),
+            Message::IndexPositionSelected,
+        );
+        if app.get_checkbox_states().add_custom_name {
+            return row![
+                text_input("Add custom file name", app.get_filename_input())
+                    .on_input(Message::FilenameInput),
+                column![index_before, index_after]
+            ]
+            .spacing(5)
+            .align_y(Vertical::Center);
+        }
+        return row![];
+    }
+
+    fn order_of_file_name_components<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let mut column = Column::new();
+        let mut row = Row::new();
+        let order_of_filename_components = app.get_order_of_filename_components();
+        if !order_of_filename_components.is_empty() {
+            column = column.push(text("Order of filename components"));
+        }
+        for component in order_of_filename_components {
+            row = row.push(text(component));
+        }
+        row = row.spacing(5).padding(5).align_y(Vertical::Center);
+        column = column.push(row);
+        return column;
     }
 
     fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
