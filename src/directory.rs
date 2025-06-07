@@ -410,7 +410,7 @@ pub mod organizing {
     use crate::app::filename_components;
     use crate::directory::Directory;
     use crate::file::File;
-    use crate::layouts::CheckboxStates;
+    use crate::layouts::{CheckboxStates, IndexPosition};
     use crate::metadata::DateType;
     use std::collections::BTreeMap;
     use std::ffi::OsString;
@@ -442,6 +442,7 @@ pub mod organizing {
         custom_file_name: &str,
         file_name_component_order: &Vec<String>,
         date_type_selected: Option<DateType>,
+        index_position: Option<IndexPosition>,
     ) -> BTreeMap<OsString, Directory> {
         let mut file_type_directories = get_file_types(&files_selected);
 
@@ -464,6 +465,7 @@ pub mod organizing {
                             file_name,
                             &file,
                             date_type_selected,
+                            index_position,
                         );
                         file_type_dir.insert_file(OsString::from(renamed_file_name), file);
                     }
@@ -480,6 +482,7 @@ pub mod organizing {
         custom_file_name: &str,
         file_name_component_order: &Vec<String>,
         date_type_selected: DateType,
+        index_position: Option<IndexPosition>,
     ) -> BTreeMap<OsString, Directory> {
         let mut file_date_directories = get_file_dates(&files_selected, date_type_selected);
 
@@ -501,6 +504,7 @@ pub mod organizing {
                                 file_name,
                                 &file,
                                 Some(date_type_selected),
+                                index_position,
                             );
                             dir.insert_file(OsString::from(renamed_file_name), file);
                         }
@@ -521,6 +525,7 @@ pub mod organizing {
         file_name: &str,
         file: &File,
         date_type_selected: Option<DateType>,
+        index_position: Option<IndexPosition>,
     ) {
         let FilenameComponents {
             mut date,
@@ -546,14 +551,28 @@ pub mod organizing {
             original_name = get_file_name_without_file_type(file_name);
         }
 
-        if checkbox_states.add_custom_name {
-            custom_name = String::from(custom_file_name);
-            let file_count_str = (file_count + 1).to_string();
-            let mut file_name_prefix = String::new();
-            file_name_prefix.push('_');
-            file_name_prefix.push('0');
-            file_name_prefix.push_str(&file_count_str);
-            custom_name.push_str(&file_name_prefix);
+        if let Some(index_position) = index_position {
+            if checkbox_states.add_custom_name {
+                let mut file_name_index = String::new();
+                let file_count_str = (file_count + 1).to_string();
+
+                match index_position {
+                    IndexPosition::Before => {
+                        file_name_index.push('0');
+                        file_name_index.push_str(&file_count_str);
+                        file_name_index.push('_');
+                        custom_name.push_str(&file_name_index);
+                        custom_name.push_str(custom_file_name);
+                    }
+                    IndexPosition::After => {
+                        file_name_index.push('_');
+                        file_name_index.push('0');
+                        file_name_index.push_str(&file_count_str);
+                        custom_name = String::from(custom_file_name);
+                        custom_name.push_str(&file_name_index);
+                    }
+                }
+            }
         }
 
         if let Some(file_type_ref) = get_file_type_from_file_name(file_name) {

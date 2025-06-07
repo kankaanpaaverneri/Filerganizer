@@ -422,6 +422,7 @@ impl App {
                                                 &self.order_of_filename_components,
                                                 checkbox_states,
                                                 date_type,
+                                                self.index_position,
                                             )
                                         {
                                             self.error = error.to_string();
@@ -596,8 +597,7 @@ impl App {
     }
 
     fn init_app_data(&mut self) {
-        self.order_of_filename_components
-            .push(String::from("Original filename"));
+        self.order_of_filename_components = vec![String::from("Original filename")];
         self.directories_selected.clear();
         self.date_type_selected = None;
         self.files_selected.clear();
@@ -846,6 +846,15 @@ impl App {
             ));
         }
 
+        if let None = self.index_position {
+            if self.checkbox_states.add_custom_name {
+                return Err(std::io::Error::new(
+                    ErrorKind::NotFound,
+                    "Index position not found",
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -874,6 +883,7 @@ impl App {
                 &self.filename_input,
                 &self.order_of_filename_components,
                 self.date_type_selected,
+                self.index_position,
             );
 
             // Write directory path and checkbox states to a file
@@ -913,6 +923,7 @@ impl App {
                         file_name,
                         &value,
                         date_type,
+                        self.index_position,
                     );
                     selected_dir.insert_file(OsString::from(renamed_file_name), value);
                 }
@@ -934,17 +945,15 @@ impl App {
                 self.checkbox_states.organize_by_date = toggle;
             }
             3 => {
-                self.checkbox_states.insert_date_to_file_name = toggle;
-                if toggle {
-                    self.order_of_filename_components
-                        .push(String::from(filename_components::DATE));
-                } else {
-                    self.filter_order_of_filename_components(String::from(
-                        filename_components::DATE,
-                    ));
-                }
+                self.checkbox_states.remove_uppercase = toggle;
             }
             4 => {
+                self.checkbox_states.replace_spaces_with_underscores = toggle;
+            }
+            5 => {
+                self.checkbox_states.use_only_ascii = toggle;
+            }
+            6 => {
                 self.checkbox_states.insert_directory_name_to_file_name = toggle;
                 if toggle {
                     self.order_of_filename_components
@@ -955,14 +964,16 @@ impl App {
                     ));
                 }
             }
-            5 => {
-                self.checkbox_states.remove_uppercase = toggle;
-            }
-            6 => {
-                self.checkbox_states.replace_spaces_with_underscores = toggle;
-            }
             7 => {
-                self.checkbox_states.use_only_ascii = toggle;
+                self.checkbox_states.insert_date_to_file_name = toggle;
+                if toggle {
+                    self.order_of_filename_components
+                        .push(String::from(filename_components::DATE));
+                } else {
+                    self.filter_order_of_filename_components(String::from(
+                        filename_components::DATE,
+                    ));
+                }
             }
             8 => {
                 self.checkbox_states.remove_original_file_name = toggle;
@@ -971,6 +982,13 @@ impl App {
                         filename_components::ORIGINAL_FILENAME,
                     ));
                     self.checkbox_states.add_custom_name = true;
+                    if !self
+                        .order_of_filename_components
+                        .contains(&String::from(filename_components::CUSTOM_FILE_NAME))
+                    {
+                        self.order_of_filename_components
+                            .push(String::from(filename_components::CUSTOM_FILE_NAME));
+                    }
                 } else {
                     self.order_of_filename_components
                         .push(String::from(filename_components::ORIGINAL_FILENAME));

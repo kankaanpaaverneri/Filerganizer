@@ -1,7 +1,7 @@
 use crate::directory;
 use crate::directory::Directory;
 use crate::file::File;
-use crate::layouts::CheckboxStates;
+use crate::layouts::{CheckboxStates, IndexPosition};
 use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -14,6 +14,7 @@ pub struct OrganizingData<'a> {
     custom_file_name: &'a str,
     file_name_component_order: &'a Vec<String>,
     date_type: Option<DateType>,
+    index_position: Option<IndexPosition>,
 }
 
 impl<'a> OrganizingData<'a> {
@@ -24,6 +25,7 @@ impl<'a> OrganizingData<'a> {
         custom_file_name: &'a str,
         file_name_component_order: &'a Vec<String>,
         date_type: Option<DateType>,
+        index_position: Option<IndexPosition>,
     ) -> Self {
         Self {
             files_selected,
@@ -32,6 +34,7 @@ impl<'a> OrganizingData<'a> {
             custom_file_name,
             file_name_component_order,
             date_type,
+            index_position,
         }
     }
 }
@@ -125,6 +128,7 @@ pub fn move_files_to_organized_directory(
     file_name_component_order: &Vec<String>,
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
+    index_position: Option<IndexPosition>,
 ) -> std::io::Result<()> {
     let data = OrganizingData {
         files_selected,
@@ -133,6 +137,7 @@ pub fn move_files_to_organized_directory(
         file_name_component_order,
         custom_file_name,
         date_type,
+        index_position,
     };
     if data.checkbox_states.organize_by_filetype && data.checkbox_states.organize_by_date {
         // Check files before inserting
@@ -219,6 +224,7 @@ fn organize_files_by_file_type_and_date(
             data.custom_file_name,
             data.file_name_component_order,
             Some(date_type_selected),
+            data.index_position,
         );
         move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type)?;
         directory::remove_empty_directories(&mut directories_by_file_type);
@@ -234,6 +240,7 @@ fn organize_files_by_file_type_and_date(
                         data.custom_file_name,
                         data.file_name_component_order,
                         date_type_selected,
+                        data.index_position,
                     );
                     move_files_from_duplicate_directories(directory, &mut directories_by_date)?;
                     directory::remove_empty_directories(&mut directories_by_date);
@@ -273,6 +280,7 @@ fn organize_files_by_file_type(
         data.custom_file_name,
         data.file_name_component_order,
         data.date_type,
+        data.index_position,
     );
     move_files_from_duplicate_directories(selected_directory, &mut file_type_directories)?;
     directory::remove_empty_directories(&mut file_type_directories);
@@ -291,6 +299,7 @@ fn organize_files_by_date(
             data.custom_file_name,
             data.file_name_component_order,
             date_type,
+            data.index_position,
         );
         move_files_from_duplicate_directories(selected_directory, &mut directories_by_date)?;
         directory::remove_empty_directories(&mut directories_by_date);
@@ -329,6 +338,7 @@ fn rename_files(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, File
                 file_name,
                 &file,
                 data.date_type,
+                data.index_position,
             );
             renamed_files.insert(OsString::from(renamed_file_name), file);
         }

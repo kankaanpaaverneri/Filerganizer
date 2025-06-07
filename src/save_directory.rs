@@ -41,7 +41,7 @@ pub fn write_created_directory_to_save_file(
             // Create file
             let mut save_file = create_save_file(home_directory_path)?;
             if let Some(dir_path) = directory_path.to_str() {
-                let mut file_content = String::from("path, organize_by_file_type, organize_by_date, insert_date_to_file_name, insert_directory_name_to_file_name, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, remove_original_file_name, add_custom_name, date_type\n");
+                let mut file_content = String::from("path, organize_by_file_type, organize_by_date, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, insert_directory_name_to_file_name, insert_date_to_file_name, remove_original_file_name, add_custom_name, date_type\n");
                 write_directory_data_to_string(
                     &mut file_content,
                     dir_path,
@@ -252,18 +252,6 @@ fn write_directory_data_to_string(
         file_content.push_str("0,");
     }
 
-    if checkbox_states.insert_date_to_file_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.insert_directory_name_to_file_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
     if checkbox_states.remove_uppercase {
         file_content.push_str("1,");
     } else {
@@ -277,6 +265,18 @@ fn write_directory_data_to_string(
     }
 
     if checkbox_states.use_only_ascii {
+        file_content.push_str("1,");
+    } else {
+        file_content.push_str("0,");
+    }
+
+    if checkbox_states.insert_directory_name_to_file_name {
+        file_content.push_str("1,");
+    } else {
+        file_content.push_str("0,");
+    }
+
+    if checkbox_states.insert_date_to_file_name {
         file_content.push_str("1,");
     } else {
         file_content.push_str("0,");
