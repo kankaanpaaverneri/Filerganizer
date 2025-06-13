@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::ErrorKind;
 
+#[derive(Debug, Clone)]
 pub struct OrganizingData<'a> {
     files_selected: BTreeMap<OsString, File>,
     checkbox_states: CheckboxStates,
@@ -57,8 +58,7 @@ pub fn apply_rules_for_directory(
     } else if data.checkbox_states.organize_by_filetype {
         let mut new_directory = Directory::new(None);
         match organize_files_by_file_type(&mut new_directory, data) {
-            Ok(directories_by_file_type) => {
-                new_directory.insert_directories(directories_by_file_type);
+            Ok(_) => {
                 selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
@@ -68,8 +68,7 @@ pub fn apply_rules_for_directory(
         // If only organize_by_date is checked
         let mut new_directory = Directory::new(None);
         match organize_files_by_date(&mut new_directory, data) {
-            Ok(directories_by_date) => {
-                new_directory.insert_directories(directories_by_date);
+            Ok(_) => {
                 selected_directory.insert_directory(new_directory, &new_directory_name);
                 return Ok(());
             }
@@ -152,17 +151,13 @@ pub fn move_files_to_organized_directory(
             return Err(error);
         }
         match organize_files_by_file_type(selected_directory, data) {
-            Ok(file_type_directories) => {
-                selected_directory.insert_directories(file_type_directories);
-            }
+            Ok(_) => {}
             Err(error) => return Err(error),
         }
     } else if data.checkbox_states.organize_by_date {
         // Check files before inserting
         match organize_files_by_date(selected_directory, data) {
-            Ok(directories_by_date) => {
-                selected_directory.insert_directories(directories_by_date);
-            }
+            Ok(_) => {}
             Err(error) => return Err(error),
         }
     } else if data.checkbox_states.insert_directory_name_to_file_name
@@ -217,42 +212,44 @@ fn organize_files_by_file_type_and_date(
     data: OrganizingData,
 ) -> std::io::Result<()> {
     if let Some(date_type_selected) = data.date_type {
-        let mut directories_by_file_type = directory::organizing::sort_files_by_file_type(
-            data.files_selected,
-            &data.checkbox_states,
-            data.new_directory_name,
-            data.custom_file_name,
-            data.file_name_component_order,
-            Some(date_type_selected),
-            data.index_position,
-        );
-        move_files_from_duplicate_directories(selected_directory, &mut directories_by_file_type)?;
-        directory::remove_empty_directories(&mut directories_by_file_type);
-        selected_directory.insert_directories(directories_by_file_type);
+        let mut file_type_dirs = directory::organizing::get_file_types(&data.files_selected);
+        selected_directory.filter_duplicate_directories(&mut file_type_dirs);
 
-        if let Some(directories_by_file_type) = selected_directory.get_mut_directories() {
-            for (_key, directory) in directories_by_file_type {
-                if let Some(files) = directory.get_mut_files().take() {
-                    let mut directories_by_date = directory::organizing::sort_files_by_date(
-                        files,
-                        &CheckboxStates::default(),
+        for (dir_name, new_dir) in file_type_dirs {
+            if let Some(dir_name) = dir_name.to_str() {
+                selected_directory.insert_directory(new_dir, dir_name);
+            }
+        }
+        if let Some(file_type_dirs) = selected_directory.get_mut_directories() {
+            directory::organizing::sort_files_by_file_type(
+                data.files_selected,
+                file_type_dirs,
+                &data.checkbox_states,
+                data.new_directory_name,
+                data.custom_file_name,
+                data.file_name_component_order,
+                data.date_type,
+                data.index_position,
+                false,
+            )?;
+
+            // After this organize by date as well
+            for (_dir_name, dir) in file_type_dirs {
+                if let Some(files_by_filetype) = dir.get_mut_files().take() {
+                    let new_data = OrganizingData::new(
+                        files_by_filetype,
+                        data.checkbox_states.clone(),
                         data.new_directory_name,
                         data.custom_file_name,
                         data.file_name_component_order,
-                        date_type_selected,
-                        data.index_position,
+                        Some(date_type_selected),
+                        data.index_position.clone(),
                     );
-                    move_files_from_duplicate_directories(directory, &mut directories_by_date)?;
-                    directory::remove_empty_directories(&mut directories_by_date);
-                    directory.insert_directories(directories_by_date);
+                    organize_files_by_date(dir, new_data)?;
                 }
             }
-            return Ok(());
         }
-        Err(std::io::Error::new(
-            ErrorKind::Other,
-            "No directories by file type found",
-        ))
+        return Ok(());
     } else {
         return Err(std::io::Error::new(
             ErrorKind::InvalidInput,
@@ -264,7 +261,7 @@ fn organize_files_by_file_type_and_date(
 fn organize_files_by_file_type(
     selected_directory: &mut Directory,
     data: OrganizingData,
-) -> std::io::Result<BTreeMap<OsString, Directory>> {
+) -> std::io::Result<()> {
     if let None = data.date_type {
         if data.checkbox_states.insert_date_to_file_name {
             return Err(std::io::Error::new(
@@ -273,37 +270,61 @@ fn organize_files_by_file_type(
             ));
         }
     }
-    let mut file_type_directories = directory::organizing::sort_files_by_file_type(
-        data.files_selected,
-        &data.checkbox_states,
-        data.new_directory_name,
-        data.custom_file_name,
-        data.file_name_component_order,
-        data.date_type,
-        data.index_position,
-    );
-    move_files_from_duplicate_directories(selected_directory, &mut file_type_directories)?;
-    directory::remove_empty_directories(&mut file_type_directories);
-    Ok(file_type_directories)
+    let mut file_type_dirs = directory::organizing::get_file_types(&data.files_selected);
+    selected_directory.filter_duplicate_directories(&mut file_type_dirs);
+
+    for (dir_name, new_dir) in file_type_dirs {
+        if let Some(dir_name) = dir_name.to_str() {
+            selected_directory.insert_directory(new_dir, dir_name);
+        }
+    }
+    if let Some(file_type_dirs) = selected_directory.get_mut_directories() {
+        directory::organizing::sort_files_by_file_type(
+            data.files_selected,
+            file_type_dirs,
+            &data.checkbox_states,
+            data.new_directory_name,
+            data.custom_file_name,
+            data.file_name_component_order,
+            data.date_type,
+            data.index_position,
+            true,
+        )?;
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        ErrorKind::NotFound,
+        "No file type directories found",
+    ))
 }
 
 fn organize_files_by_date(
     selected_directory: &mut Directory,
     data: OrganizingData,
-) -> std::io::Result<BTreeMap<OsString, Directory>> {
+) -> std::io::Result<()> {
     if let Some(date_type) = data.date_type {
-        let mut directories_by_date = directory::organizing::sort_files_by_date(
-            data.files_selected,
-            &data.checkbox_states,
-            data.new_directory_name,
-            data.custom_file_name,
-            data.file_name_component_order,
-            date_type,
-            data.index_position,
-        );
-        move_files_from_duplicate_directories(selected_directory, &mut directories_by_date)?;
-        directory::remove_empty_directories(&mut directories_by_date);
-        Ok(directories_by_date)
+        let mut file_date_dirs =
+            directory::organizing::get_file_dates(&data.files_selected, date_type);
+        selected_directory.filter_duplicate_directories(&mut file_date_dirs);
+
+        for (dir_name, dir) in file_date_dirs {
+            if let Some(dir_name) = dir_name.to_str() {
+                selected_directory.insert_directory(dir, dir_name);
+            }
+        }
+        if let Some(file_date_dirs) = selected_directory.get_mut_directories() {
+            directory::organizing::sort_files_by_date(
+                data.files_selected,
+                file_date_dirs,
+                &data.checkbox_states,
+                data.new_directory_name,
+                data.custom_file_name,
+                data.file_name_component_order,
+                date_type,
+                data.index_position,
+            )?;
+        }
+        Ok(())
     } else {
         return Err(std::io::Error::new(
             ErrorKind::InvalidInput,
@@ -345,26 +366,4 @@ fn rename_files(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, File
     }
 
     Ok(renamed_files)
-}
-
-fn move_files_from_duplicate_directories(
-    selected_directory: &mut Directory,
-    new_directories: &mut BTreeMap<OsString, Directory>,
-) -> std::io::Result<()> {
-    if let Some(selected_directories) = selected_directory.get_mut_directories() {
-        for (new_key, new_dir) in new_directories {
-            if selected_directories.contains_key(new_key) {
-                if let Some(files) = new_dir.get_mut_files().take() {
-                    if let Some(selected_directory) = selected_directories.get_mut(new_key) {
-                        // Do some checking with the files that overwriting doesn't happen
-                        selected_directory.contains_unique_files(&files)?;
-                        for (file_name, file) in files {
-                            selected_directory.insert_file(file_name, file);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }

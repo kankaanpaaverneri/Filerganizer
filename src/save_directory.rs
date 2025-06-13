@@ -167,23 +167,23 @@ fn parse_rules(list_of_rules: &Vec<&str>) -> CheckboxStates {
     }
 
     if list_of_rules[3] == "1" {
-        checkbox_states.insert_date_to_file_name = true;
-    }
-
-    if list_of_rules[4] == "1" {
-        checkbox_states.insert_directory_name_to_file_name = true;
-    }
-
-    if list_of_rules[5] == "1" {
         checkbox_states.remove_uppercase = true;
     }
 
-    if list_of_rules[6] == "1" {
+    if list_of_rules[4] == "1" {
         checkbox_states.replace_spaces_with_underscores = true;
     }
 
-    if list_of_rules[7] == "1" {
+    if list_of_rules[5] == "1" {
         checkbox_states.use_only_ascii = true;
+    }
+
+    if list_of_rules[6] == "1" {
+        checkbox_states.insert_directory_name_to_file_name = true;
+    }
+
+    if list_of_rules[7] == "1" {
+        checkbox_states.insert_date_to_file_name = true;
     }
 
     if list_of_rules[8] == "1" {

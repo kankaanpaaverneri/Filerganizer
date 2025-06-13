@@ -44,17 +44,6 @@ impl Directory {
         }
     }
 
-    pub fn insert_directories(&mut self, directories: BTreeMap<OsString, Directory>) {
-        if let Some(mut dirs) = self.directories.take() {
-            for (key, value) in directories {
-                dirs.insert(key, value);
-            }
-            self.directories = Some(dirs);
-        } else {
-            self.directories = Some(directories);
-        }
-    }
-
     pub fn get_files_recursive(
         &mut self,
         files_holder: &mut BTreeMap<OsString, File>,
@@ -219,6 +208,34 @@ impl Directory {
         }
     }
 
+    pub fn filter_duplicate_directories(&self, directories: &mut BTreeMap<OsString, Directory>) {
+        if let Some(selected_dirs) = self.get_directories() {
+            *directories = directories
+                .iter()
+                .filter_map(|(key, dir)| {
+                    if selected_dirs.contains_key(key) {
+                        return None;
+                    }
+                    return Some((OsString::from(key.as_os_str()), (*dir).clone()));
+                })
+                .collect();
+        }
+    }
+
+    pub fn file_aready_exists_in_directory(&self, filename: &OsStr) -> std::io::Result<()> {
+        if let Some(files) = &self.files {
+            for key in files.keys() {
+                if key == filename {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Filename already exists in directory",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_directories(&self) -> &Option<BTreeMap<OsString, Directory>> {
         &self.directories
     }
@@ -275,30 +292,6 @@ fn read_parent_entry(path: &PathBuf, last_directory: &OsStr) -> std::io::Result<
             Ok(None)
         }
         Err(error) => Err(error),
-    }
-}
-
-pub fn remove_empty_directories(directories: &mut BTreeMap<OsString, Directory>) {
-    let mut key_list = Vec::new();
-
-    for (key, value) in directories.iter() {
-        let mut is_empty = match value.files {
-            None => true,
-            _ => false,
-        };
-        if is_empty {
-            is_empty = match value.directories {
-                None => true,
-                _ => false,
-            };
-        }
-
-        if is_empty {
-            key_list.push(OsString::from(key));
-        }
-    }
-    for key in key_list {
-        directories.remove(&key);
     }
 }
 
@@ -437,15 +430,15 @@ pub mod organizing {
 
     pub fn sort_files_by_file_type(
         files_selected: BTreeMap<OsString, File>,
+        file_type_directories: &mut BTreeMap<OsString, Directory>,
         checkbox_states: &CheckboxStates,
         new_directory_name: &str,
         custom_file_name: &str,
         file_name_component_order: &Vec<String>,
         date_type_selected: Option<DateType>,
         index_position: Option<IndexPosition>,
-    ) -> BTreeMap<OsString, Directory> {
-        let mut file_type_directories = get_file_types(&files_selected);
-
+        rename: bool,
+    ) -> std::io::Result<()> {
         for (key, file) in files_selected {
             if let Some(file_name) = key.to_str() {
                 let splitted: Vec<_> = file_name.split(".").collect();
@@ -453,39 +446,46 @@ pub mod organizing {
                     if let Some(file_type_dir) =
                         file_type_directories.get_mut(&OsString::from(file_type))
                     {
-                        let mut renamed_file_name = String::new();
-                        let file_count = file_type_dir.get_file_count();
-                        rename_file_name(
-                            &mut renamed_file_name,
-                            checkbox_states,
-                            new_directory_name,
-                            custom_file_name,
-                            file_count,
-                            file_name_component_order,
-                            file_name,
-                            &file,
-                            date_type_selected,
-                            index_position,
-                        );
-                        file_type_dir.insert_file(OsString::from(renamed_file_name), file);
+                        if rename {
+                            let mut renamed_file_name = String::new();
+                            let file_count = file_type_dir.get_file_count();
+                            rename_file_name(
+                                &mut renamed_file_name,
+                                checkbox_states,
+                                new_directory_name,
+                                custom_file_name,
+                                file_count,
+                                file_name_component_order,
+                                file_name,
+                                &file,
+                                date_type_selected,
+                                index_position,
+                            );
+                            file_type_dir.file_aready_exists_in_directory(&OsString::from(
+                                &renamed_file_name,
+                            ))?;
+                            file_type_dir.insert_file(OsString::from(renamed_file_name), file);
+                        } else {
+                            file_type_dir.file_aready_exists_in_directory(&key)?;
+                            file_type_dir.insert_file(key, file);
+                        }
                     }
                 }
             }
         }
-        file_type_directories
+        Ok(())
     }
 
     pub fn sort_files_by_date(
         files_selected: BTreeMap<OsString, File>,
+        file_date_directories: &mut BTreeMap<OsString, Directory>,
         checkbox_states: &CheckboxStates,
         new_directory_name: &str,
         custom_file_name: &str,
         file_name_component_order: &Vec<String>,
         date_type_selected: DateType,
         index_position: Option<IndexPosition>,
-    ) -> BTreeMap<OsString, Directory> {
-        let mut file_date_directories = get_file_dates(&files_selected, date_type_selected);
-
+    ) -> std::io::Result<()> {
         for (key, file) in files_selected {
             if let Some(file_name) = key.to_str() {
                 if let Some(metadata) = file.get_metadata() {
@@ -506,13 +506,16 @@ pub mod organizing {
                                 Some(date_type_selected),
                                 index_position,
                             );
+                            dir.file_aready_exists_in_directory(&OsString::from(
+                                &renamed_file_name,
+                            ))?;
                             dir.insert_file(OsString::from(renamed_file_name), file);
                         }
                     }
                 }
             }
         }
-        file_date_directories
+        Ok(())
     }
 
     pub fn rename_file_name(
@@ -568,7 +571,7 @@ pub mod organizing {
                         file_name_index.push('_');
                         file_name_index.push('0');
                         file_name_index.push_str(&file_count_str);
-                        custom_name = String::from(custom_file_name);
+                        custom_name.push_str(custom_file_name);
                         custom_name.push_str(&file_name_index);
                     }
                 }
@@ -604,7 +607,6 @@ pub mod organizing {
                 original_name = replace_non_ascii(original_name.clone());
             }
         }
-
         if let Some(last) = file_name_component_order.last() {
             for component in file_name_component_order {
                 if *component == String::from(filename_components::DATE) {
@@ -672,7 +674,9 @@ pub mod organizing {
         true
     }
 
-    fn get_file_types(files_selected: &BTreeMap<OsString, File>) -> BTreeMap<OsString, Directory> {
+    pub fn get_file_types(
+        files_selected: &BTreeMap<OsString, File>,
+    ) -> BTreeMap<OsString, Directory> {
         let mut file_types: BTreeMap<OsString, Directory> = BTreeMap::new();
         for key in files_selected.keys() {
             if let Some(file_name) = key.to_str() {
@@ -686,7 +690,7 @@ pub mod organizing {
         file_types
     }
 
-    fn get_file_dates(
+    pub fn get_file_dates(
         files_selected: &BTreeMap<OsString, File>,
         date_type: DateType,
     ) -> BTreeMap<OsString, Directory> {
