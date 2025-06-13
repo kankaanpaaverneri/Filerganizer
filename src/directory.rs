@@ -443,8 +443,9 @@ pub mod organizing {
             if let Some(file_name) = key.to_str() {
                 let splitted: Vec<_> = file_name.split(".").collect();
                 if let Some(file_type) = splitted.last() {
+                    let lower_case_file_type = file_type.to_lowercase();
                     if let Some(file_type_dir) =
-                        file_type_directories.get_mut(&OsString::from(file_type))
+                        file_type_directories.get_mut(&OsString::from(&lower_case_file_type))
                     {
                         if rename {
                             let mut renamed_file_name = String::new();
@@ -683,7 +684,8 @@ pub mod organizing {
                 let file_name = String::from(file_name);
                 let splitted: Vec<_> = file_name.split(".").collect();
                 if let Some(file_type) = splitted.last() {
-                    file_types.insert(OsString::from(file_type), Directory::new(None));
+                    let lower_case_file_type = file_type.to_lowercase();
+                    file_types.insert(OsString::from(&lower_case_file_type), Directory::new(None));
                 }
             }
         }

@@ -139,13 +139,11 @@ pub fn move_files_to_organized_directory(
         index_position,
     };
     if data.checkbox_states.organize_by_filetype && data.checkbox_states.organize_by_date {
-        // Check files before inserting
         match organize_files_by_file_type_and_date(selected_directory, data) {
             Ok(_) => {}
             Err(error) => return Err(error),
         }
     } else if data.checkbox_states.organize_by_filetype {
-        // Check files before inserting
         if let Err(error) = selected_directory.contains_unique_files_recursive(&data.files_selected)
         {
             return Err(error);
@@ -328,7 +326,7 @@ fn organize_files_by_date(
     } else {
         return Err(std::io::Error::new(
             ErrorKind::InvalidInput,
-            "Date type not specified.",
+            "Date type not specified",
         ));
     }
 }
@@ -338,7 +336,7 @@ fn rename_files(data: OrganizingData) -> std::io::Result<BTreeMap<OsString, File
         if data.checkbox_states.insert_date_to_file_name {
             return Err(std::io::Error::new(
                 ErrorKind::NotFound,
-                "No date type specified",
+                "Date type not specified",
             ));
         }
     }
