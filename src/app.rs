@@ -6,7 +6,6 @@ use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use crate::directory::organizing;
 use crate::directory::Directory;
 use crate::file::File;
 use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
@@ -864,7 +863,8 @@ impl App {
     ) -> std::io::Result<()> {
         if let Some(selected_directory) = self.root.get_mut_directory_by_path(&self.path) {
             if let Some(directories) = selected_directory.get_directories() {
-                if !organizing::is_directory_name_unique(&self.new_directory_name, directories) {
+                if !organize_files::is_directory_name_unique(&self.new_directory_name, directories)
+                {
                     self.files_selected = files_selected;
                     return Err(std::io::Error::new(
                         ErrorKind::AlreadyExists,
@@ -913,7 +913,7 @@ impl App {
                 if let Some(file_name) = key.to_str() {
                     let mut renamed_file_name = String::new();
                     let file_count = selected_dir.get_file_count();
-                    organizing::rename_file_name(
+                    organize_files::rename_file_name(
                         &mut renamed_file_name,
                         &checkbox_states,
                         &self.new_directory_name,
