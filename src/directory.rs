@@ -315,6 +315,7 @@ fn insert_entries(
 }
 
 fn write_directory_entry(entry: &DirEntry) -> Option<Directory> {
+    let origin_path = entry.path();
     match entry.metadata() {
         Ok(metadata) => {
             let created = metadata.created().ok().take();
@@ -329,6 +330,8 @@ fn write_directory_entry(entry: &DirEntry) -> Option<Directory> {
                     modified,
                     None,
                     readonly,
+                    Some(origin_path),
+                    None,
                 ))));
             }
             None
@@ -338,6 +341,7 @@ fn write_directory_entry(entry: &DirEntry) -> Option<Directory> {
 }
 
 fn write_file_entry(entry: &DirEntry) -> Option<File> {
+    let origin_path = entry.path();
     match entry.metadata() {
         Ok(metadata) => {
             let created = metadata.created().ok().take();
@@ -353,6 +357,8 @@ fn write_file_entry(entry: &DirEntry) -> Option<File> {
                     modified,
                     Some(size),
                     readonly,
+                    Some(origin_path),
+                    None,
                 )));
             }
             None

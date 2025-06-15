@@ -173,7 +173,7 @@ impl Layout {
                     column![text("Selected path: "), text(path)]
                         .width(FillPortion(1))
                         .align_x(Horizontal::Left),
-                    column![button("Commit")]
+                    column![button("Commit").on_press(Message::Commit)]
                         .width(FillPortion(1))
                         .align_x(Horizontal::Right),
                 ]

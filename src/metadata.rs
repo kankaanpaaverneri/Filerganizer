@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use std::{ffi::OsString, time::SystemTime};
+use std::{ffi::OsString, path::PathBuf, time::SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct Metadata {
@@ -9,6 +9,8 @@ pub struct Metadata {
     modified: Option<DateTime<Local>>,
     size: Option<f64>,
     readonly: bool,
+    origin_path: Option<PathBuf>,
+    destination_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +29,8 @@ impl Metadata {
             modified: None,
             size: None,
             readonly: false,
+            origin_path: None,
+            destination_path: None,
         }
     }
 
@@ -56,6 +60,14 @@ impl Metadata {
         }
     }
 
+    pub fn set_destination_path(&mut self, destination_path: PathBuf) {
+        self.destination_path = Some(destination_path);
+    }
+
+    pub fn get_name(&self) -> Option<OsString> {
+        self.name.clone()
+    }
+
     pub fn get_created(&self) -> Option<DateTime<Local>> {
         self.created
     }
@@ -76,6 +88,36 @@ impl Metadata {
         self.readonly
     }
 
+    pub fn get_origin_path(&self) -> Option<PathBuf> {
+        self.origin_path.clone()
+    }
+
+    pub fn get_destination_path(&self) -> Option<PathBuf> {
+        self.destination_path.clone()
+    }
+
+    pub fn build_local_time(
+        name: Option<OsString>,
+        created: Option<DateTime<Local>>,
+        accessed: Option<DateTime<Local>>,
+        modified: Option<DateTime<Local>>,
+        size: Option<f64>,
+        readonly: bool,
+        origin_path: Option<PathBuf>,
+        destination_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            name,
+            created,
+            accessed,
+            modified,
+            size,
+            readonly,
+            origin_path,
+            destination_path,
+        }
+    }
+
     pub fn build(
         name: Option<OsString>,
         created: Option<SystemTime>,
@@ -83,8 +125,19 @@ impl Metadata {
         modified: Option<SystemTime>,
         size: Option<f64>,
         readonly: bool,
+        origin_path: Option<PathBuf>,
+        destination_path: Option<PathBuf>,
     ) -> Self {
-        Self::convert_metadata_to_datetime(name, created, accessed, modified, size, readonly)
+        Self::convert_metadata_to_datetime(
+            name,
+            created,
+            accessed,
+            modified,
+            size,
+            readonly,
+            origin_path,
+            destination_path,
+        )
     }
 
     fn convert_metadata_to_datetime(
@@ -94,6 +147,8 @@ impl Metadata {
         modified: Option<SystemTime>,
         size: Option<f64>,
         readonly: bool,
+        origin_path: Option<PathBuf>,
+        destination_path: Option<PathBuf>,
     ) -> Self {
         let mut metadata = Self::new();
         metadata.name = name;
@@ -108,6 +163,8 @@ impl Metadata {
         }
         metadata.size = size;
         metadata.readonly = readonly;
+        metadata.origin_path = origin_path;
+        metadata.destination_path = destination_path;
         metadata
     }
 }

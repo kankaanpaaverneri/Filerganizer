@@ -6,6 +6,7 @@ use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::ErrorKind;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct OrganizingData<'a> {
@@ -206,6 +207,8 @@ pub fn move_files_to_organized_directory(
 }
 
 fn organize_files_by_file_type_and_date(
+    path_to_selected_directory: &PathBuf,
+    files_organized: &mut BTreeMap<OsString, File>,
     selected_directory: &mut Directory,
     data: OrganizingData,
 ) -> std::io::Result<()> {
@@ -220,6 +223,7 @@ fn organize_files_by_file_type_and_date(
         }
         if let Some(file_type_dirs) = selected_directory.get_mut_directories() {
             sort_files_by_file_type(
+                path_to_selected_directory,
                 data.files_selected,
                 file_type_dirs,
                 &data.checkbox_states,
@@ -257,6 +261,7 @@ fn organize_files_by_file_type_and_date(
 }
 
 fn organize_files_by_file_type(
+    path_to_selected_directory: &PathBuf,
     selected_directory: &mut Directory,
     data: OrganizingData,
 ) -> std::io::Result<()> {
@@ -278,6 +283,7 @@ fn organize_files_by_file_type(
     }
     if let Some(file_type_dirs) = selected_directory.get_mut_directories() {
         sort_files_by_file_type(
+            path_to_selected_directory
             data.files_selected,
             file_type_dirs,
             &data.checkbox_states,
@@ -386,6 +392,7 @@ impl FilenameComponents {
 }
 
 pub fn sort_files_by_file_type(
+    path_to_selected_directory: &PathBuf,
     files_selected: BTreeMap<OsString, File>,
     file_type_directories: &mut BTreeMap<OsString, Directory>,
     checkbox_states: &CheckboxStates,
@@ -396,7 +403,7 @@ pub fn sort_files_by_file_type(
     index_position: Option<IndexPosition>,
     rename: bool,
 ) -> std::io::Result<()> {
-    for (key, file) in files_selected {
+    for (key, mut file) in files_selected {
         if let Some(file_name) = key.to_str() {
             let splitted: Vec<_> = file_name.split(".").collect();
             if let Some(file_type) = splitted.last() {
@@ -421,9 +428,25 @@ pub fn sort_files_by_file_type(
                         );
                         file_type_dir
                             .file_aready_exists_in_directory(&OsString::from(&renamed_file_name))?;
-                        file_type_dir.insert_file(OsString::from(renamed_file_name), file);
+                        let path_in_rule_directory = build_destination_path(vec![
+                            new_directory_name,
+                            &lower_case_file_type,
+                            &renamed_file_name,
+                        ]);
+                        let mut destination_path = PathBuf::from(&path_to_selected_directory);
+                        destination_path.push(path_in_rule_directory);
+                        file.set_destination_path(destination_path);
+                        file_type_dir.insert_file(OsString::from(&renamed_file_name), file);
                     } else {
                         file_type_dir.file_aready_exists_in_directory(&key)?;
+                        let path_in_rule_directory = build_destination_path(vec![
+                            new_directory_name,
+                            &lower_case_file_type,
+                            file_name,
+                        ]);
+                        let mut destination_path = PathBuf::from(&path_to_selected_directory);
+                        destination_path.push(path_in_rule_directory);
+                        file.set_destination_path(destination_path);
                         file_type_dir.insert_file(key, file);
                     }
                 }
@@ -656,4 +679,12 @@ pub fn get_file_dates(
         }
     }
     file_dates
+}
+
+fn build_destination_path(path_components: Vec<&str>) -> PathBuf {
+    let mut path = PathBuf::new();
+    for path_component in path_components {
+        path.push(path_component);
+    }
+    path
 }

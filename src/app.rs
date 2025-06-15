@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::directory::Directory;
 use crate::file::File;
 use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
-use crate::metadata::DateType;
+use crate::metadata::{DateType, Metadata};
 use crate::organize_files;
 use crate::save_directory;
 use crate::{app_util, directory};
@@ -33,6 +33,7 @@ pub struct App {
     filename_input: String,
     order_of_filename_components: Vec<String>,
     index_position: Option<IndexPosition>,
+    files_organized: BTreeMap<OsString, File>,
 }
 
 pub mod filename_components {
@@ -63,6 +64,7 @@ impl Default for App {
             filename_input: String::new(),
             order_of_filename_components: Vec::new(),
             index_position: None,
+            files_organized: BTreeMap::new(),
         }
     }
 }
@@ -95,6 +97,7 @@ pub enum Message {
     FilenameInput(String),
     IndexPositionSelected(IndexPosition),
     Back,
+    Commit,
     Exit,
 }
 
@@ -448,6 +451,11 @@ impl App {
                     IndexPosition::Before => self.index_position = Some(IndexPosition::Before),
                     IndexPosition::After => self.index_position = Some(IndexPosition::After),
                 }
+                return Task::none();
+            }
+            Message::Commit => {
+                println!("Commit!");
+                println!("files_organized: {:?}", self.files_organized);
                 return Task::none();
             }
             Message::Back => {
@@ -876,6 +884,11 @@ impl App {
             // In case of an error, put files_selected back to self
             let temp_files_selected = files_selected.clone();
 
+            // Copy selected_files to files_organized
+            for (filename, file) in files_selected.clone() {
+                self.files_organized.insert(filename, file);
+            }
+
             let data = organize_files::OrganizingData::new(
                 files_selected,
                 self.checkbox_states.clone(),
@@ -893,6 +906,7 @@ impl App {
                 data,
             ) {
                 self.files_selected = temp_files_selected;
+                self.files_organized.clear();
                 return Err(error);
             }
             return Ok(());

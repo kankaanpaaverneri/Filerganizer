@@ -2,6 +2,7 @@ mod app;
 mod app_util;
 mod directory;
 mod file;
+mod filesystem;
 mod layouts;
 mod metadata;
 mod organize_files;
