@@ -417,6 +417,8 @@ impl App {
                                     if let Some(directory_name) = last.to_str() {
                                         if let Err(error) =
                                             organize_files::move_files_to_organized_directory(
+                                                &self.path,
+                                                &mut self.files_organized,
                                                 self.files_selected.clone(),
                                                 selected_dir,
                                                 directory_name,
@@ -585,7 +587,32 @@ impl App {
                     self.layout = Layout::DirectorySelectionLayout;
                     Ok(())
                 }
-                _ => Ok(()),
+                "linux" => {
+                    let mut path = PathBuf::from("/");
+                    self.insert_root_directory(&path);
+                    self.write_directory_to_tree(&path);
+
+                    match directory::system_dir::get_home_directory() {
+                        Some(home_path) => {
+                            self.home_directory_path = home_path;
+                            self.write_directories_from_path(&PathBuf::from(
+                                &self.home_directory_path,
+                            ))?;
+                        }
+                        None => {
+                            self.error = std::io::Error::new(
+                                ErrorKind::NotFound,
+                                "Could not find home directory",
+                            )
+                            .to_string();
+                        }
+                    }
+
+                    self.layout = Layout::DirectorySelectionLayout;
+                    self.update_path_input();
+                    Ok(())
+                },
+                _ => Err(std::io::Error::new(ErrorKind::Other, "Operating system not supported")),
             },
             Layout::Main => {
                 self.init_app_data();
@@ -901,6 +928,8 @@ impl App {
 
             // Write directory path and checkbox states to a file
             if let Err(error) = organize_files::apply_rules_for_directory(
+                &self.path,
+                &mut self.files_organized,
                 String::from(&self.new_directory_name),
                 selected_directory,
                 data,

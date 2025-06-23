@@ -17,6 +17,11 @@ impl File {
     pub fn set_destination_path(&mut self, destination_path: PathBuf) {
         if let Some(metadata) = &mut self.metadata {
             metadata.set_destination_path(destination_path);
+        } else {
+            self.metadata = Some(Metadata::new());
+            if let Some(metadata) = &mut self.metadata {
+                metadata.set_destination_path(destination_path);
+            }
         }
     }
 
