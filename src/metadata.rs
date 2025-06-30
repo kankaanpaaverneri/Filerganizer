@@ -34,7 +34,7 @@ impl Metadata {
         }
     }
 
-    pub fn get_formated_date(&self, date_type: DateType) -> Option<String> {
+    pub fn get_formatted_date(&self, date_type: DateType) -> Option<String> {
         match date_type {
             DateType::Created => {
                 if let Some(created) = self.created {
