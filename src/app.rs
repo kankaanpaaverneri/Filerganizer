@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::directory::Directory;
 use crate::file::File;
 use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
-use crate::metadata::{DateType, Metadata};
+use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
 use crate::{app_util, directory};
@@ -588,9 +588,9 @@ impl App {
                     Ok(())
                 }
                 "linux" => {
-                    let mut path = PathBuf::from("/");
+                    let path = PathBuf::from("/");
                     self.insert_root_directory(&path);
-                    self.write_directory_to_tree(&path);
+                    self.write_directory_to_tree(&path)?;
 
                     match directory::system_dir::get_home_directory() {
                         Some(home_path) => {
@@ -957,6 +957,7 @@ impl App {
                     let mut renamed_file_name = String::new();
                     let file_count = selected_dir.get_file_count();
                     organize_files::rename_file_name(
+                        organize_files::RenameData::build(
                         &mut renamed_file_name,
                         &checkbox_states,
                         &self.new_directory_name,
@@ -967,7 +968,7 @@ impl App {
                         &value,
                         date_type,
                         self.index_position,
-                    );
+                        ));
                     selected_dir.insert_file(OsString::from(renamed_file_name), value);
                 }
             }

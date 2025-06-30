@@ -199,7 +199,7 @@ impl Layout {
         }
     }
 
-    fn rules_for_directory<'a>(&'a self, app: &'a App) -> Column<Message> {
+    fn rules_for_directory<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let created = radio(
             "Created",
             DateType::Created,

@@ -64,10 +64,6 @@ impl Metadata {
         self.destination_path = Some(destination_path);
     }
 
-    pub fn get_name(&self) -> Option<OsString> {
-        self.name.clone()
-    }
-
     pub fn get_created(&self) -> Option<DateTime<Local>> {
         self.created
     }
@@ -86,36 +82,6 @@ impl Metadata {
 
     pub fn get_readonly(&self) -> bool {
         self.readonly
-    }
-
-    pub fn get_origin_path(&self) -> Option<PathBuf> {
-        self.origin_path.clone()
-    }
-
-    pub fn get_destination_path(&self) -> Option<PathBuf> {
-        self.destination_path.clone()
-    }
-
-    pub fn build_local_time(
-        name: Option<OsString>,
-        created: Option<DateTime<Local>>,
-        accessed: Option<DateTime<Local>>,
-        modified: Option<DateTime<Local>>,
-        size: Option<f64>,
-        readonly: bool,
-        origin_path: Option<PathBuf>,
-        destination_path: Option<PathBuf>,
-    ) -> Self {
-        Self {
-            name,
-            created,
-            accessed,
-            modified,
-            size,
-            readonly,
-            origin_path,
-            destination_path,
-        }
     }
 
     pub fn build(
