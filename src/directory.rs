@@ -85,28 +85,6 @@ impl Directory {
         Ok(())
     }
 
-    pub fn contains_unique_files_recursive(
-        &self,
-        files_holder: &BTreeMap<OsString, File>,
-    ) -> std::io::Result<()> {
-        if let Some(directories) = self.get_directories() {
-            for (_key, dir) in directories {
-                if let Some(files) = dir.get_files() {
-                    for file_name in files.keys() {
-                        if files_holder.contains_key(file_name) {
-                            return Err(std::io::Error::new(
-                                ErrorKind::InvalidData,
-                                "Duplicate files detected in directories",
-                            ));
-                        }
-                    }
-                }
-                dir.contains_unique_files_recursive(files_holder)?;
-            }
-        }
-        Ok(())
-    }
-
     pub fn read_path(
         &mut self,
         path: &PathBuf,
@@ -205,6 +183,14 @@ impl Directory {
     pub fn remove_sub_directory(&mut self, directory_name: &OsStr) {
         if let Some(directories) = &mut self.directories {
             directories.remove(directory_name);
+        }
+    }
+
+    pub fn insert_new_directories(&mut self, new_dirs: BTreeMap<OsString, Directory>) {
+        for (dir_name, new_dir) in new_dirs {
+            if let Some(dir_name) = dir_name.to_str() {
+                self.insert_directory(new_dir, dir_name);
+            }
         }
     }
 
