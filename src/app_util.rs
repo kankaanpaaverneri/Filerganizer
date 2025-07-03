@@ -1,5 +1,7 @@
 use crate::directory::Directory;
 use crate::file::File;
+use crate::layouts::CheckboxStates;
+use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::ErrorKind;
@@ -67,4 +69,31 @@ pub fn select_file(
         }
     }
     Ok(())
+}
+
+pub fn convert_os_str_to_str(key: &OsStr) -> std::io::Result<&str> {
+   if let Some(key) = key.to_str() {
+        return Ok(key);
+   } 
+   Err(std::io::Error::new(ErrorKind::Other, "Could not parse &OsStr to &str"))
+}
+
+pub fn just_rename_checked(checkbox_states: &CheckboxStates) -> bool {
+    if checkbox_states.insert_directory_name_to_file_name
+    || checkbox_states.insert_date_to_file_name
+    || checkbox_states.remove_uppercase
+    || checkbox_states.replace_spaces_with_underscores
+    || checkbox_states.use_only_ascii
+    || checkbox_states.remove_original_file_name
+    || checkbox_states.add_custom_name {
+        return true;
+    }
+    return false;
+}
+
+pub fn get_date_type(date_type: Option<DateType>) -> std::io::Result<DateType> {
+    if let Some(date_type) = date_type {
+        return Ok(date_type);
+    }
+    Err(std::io::Error::new(ErrorKind::NotFound, "Date type not specified."))
 }

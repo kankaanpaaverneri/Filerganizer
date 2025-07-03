@@ -284,67 +284,51 @@ impl App {
                 Task::none()
             }
             Message::RenameFiles => {
-                let insert_date_to_file_name = self.checkbox_states.insert_date_to_file_name;
-                let remove_uppercase = self.checkbox_states.remove_uppercase;
-                let replace_spaces_with_underscores =
-                    self.checkbox_states.replace_spaces_with_underscores;
-                let use_only_ascii = self.checkbox_states.use_only_ascii;
-                let replace_original_file_name = self.checkbox_states.remove_original_file_name;
-                let add_custom_name = self.checkbox_states.add_custom_name;
-
-                if insert_date_to_file_name
-                    || remove_uppercase
-                    || replace_spaces_with_underscores
-                    || use_only_ascii
-                    || replace_original_file_name
-                    || add_custom_name
-                {
-                    if insert_date_to_file_name {
-                        if let Some(date_type) = self.date_type_selected {
-                            let result = self.rename_files_without_directory(
-                                CheckboxStates::new(
-                                    false,
-                                    false,
-                                    insert_date_to_file_name,
-                                    false,
-                                    remove_uppercase,
-                                    replace_spaces_with_underscores,
-                                    use_only_ascii,
-                                    replace_original_file_name,
-                                    add_custom_name,
-                                ),
-                                Some(date_type),
-                            );
-                            if let Err(error) = result {
-                                self.error = error.to_string();
-                            }
-                        } else {
-                            self.error =
-                                std::io::Error::new(ErrorKind::NotFound, "No date type specified")
-                                    .to_string();
-                        }
-                    } else {
-                        let result = self.rename_files_without_directory(
-                            CheckboxStates::new(
-                                false,
-                                false,
-                                insert_date_to_file_name,
-                                false,
-                                remove_uppercase,
-                                replace_spaces_with_underscores,
-                                use_only_ascii,
-                                replace_original_file_name,
-                                add_custom_name,
-                            ),
-                            None,
-                        );
-                        if let Err(error) = result {
-                            self.error = error.to_string();
-                        }
+                if !app_util::just_rename_checked(&self.checkbox_states) {
+                    self.error =
+                        std::io::Error::new(ErrorKind::NotFound, "No rename options specified")
+                        .to_string();
+                }
+                if !self.checkbox_states.insert_date_to_file_name {
+                    let result = self.rename_files_without_directory(
+                        CheckboxStates::new(
+                            false,
+                            false,
+                            self.checkbox_states.insert_date_to_file_name,
+                            false,
+                            self.checkbox_states.remove_uppercase,
+                            self.checkbox_states.replace_spaces_with_underscores,
+                            self.checkbox_states.use_only_ascii,
+                            self.checkbox_states.remove_original_file_name,
+                            self.checkbox_states.add_custom_name,
+                        ),
+                        None,
+                    );
+                    if let Err(error) = result {
+                        self.error = error.to_string();
+                    }
+                }
+                if let Some(date_type) = self.date_type_selected {
+                    let result = self.rename_files_without_directory(
+                        CheckboxStates::new(
+                            false,
+                            false,
+                            self.checkbox_states.insert_date_to_file_name,
+                            false,
+                            self.checkbox_states.remove_uppercase,
+                            self.checkbox_states.replace_spaces_with_underscores,
+                            self.checkbox_states.use_only_ascii,
+                            self.checkbox_states.remove_original_file_name,
+                            self.checkbox_states.add_custom_name,
+                        ),
+                        Some(date_type),
+                    );
+                    if let Err(error) = result {
+                        self.error = error.to_string();
                     }
                 } else {
                     self.error =
-                        std::io::Error::new(ErrorKind::NotFound, "No rename options specified")
+                        std::io::Error::new(ErrorKind::NotFound, "No date type specified")
                             .to_string();
                 }
                 Task::none()
@@ -404,44 +388,9 @@ impl App {
                 Task::none()
             }
             Message::InsertFilesToSelectedDirectory => {
-                if let Some(selected_dir_path) = &self.directory_selected {
-                    if let Some(selected_dir) =
-                        self.root.get_mut_directory_by_path(selected_dir_path)
-                    {
-                        match save_directory::read_directory_rules_from_file(
-                            &self.home_directory_path,
-                            selected_dir_path,
-                        ) {
-                            Ok((checkbox_states, date_type)) => {
-                                if let Some(last) = selected_dir_path.iter().last() {
-                                    if let Some(directory_name) = last.to_str() {
-                                        if let Err(error) =
-                                            organize_files::move_files_to_organized_directory(
-                                                &self.path,
-                                                &mut self.files_organized,
-                                                self.files_selected.clone(),
-                                                selected_dir,
-                                                directory_name,
-                                                &self.filename_input,
-                                                &self.order_of_filename_components,
-                                                checkbox_states,
-                                                date_type,
-                                                self.index_position,
-                                            )
-                                        {
-                                            self.error = error.to_string();
-                                        } else {
-                                            self.files_selected.clear();
-                                        }
-                                    }
-                                }
-                            }
-                            Err(error) => {
-                                self.error = error.to_string();
-                            }
-                        }
-                    }
-                }
+                if let Err(error) = self.insert_files_to_selected_dir() {
+                    self.error = error.to_string();
+                } 
                 Task::none()
             }
             Message::FilenameInput(input) => {
@@ -534,83 +483,23 @@ impl App {
         match layout {
             Layout::DirectorySelectionLayout => match std::env::consts::OS {
                 "windows" => {
-                    if let Some(first) = self.get_drives_on_windows().first() {
-                        let path = PathBuf::from(first);
-                        for path in self.get_drives_on_windows() {
-                            self.external_storage.insert(path);
-                        }
-                        self.insert_root_directory(&path);
-                        match directory::system_dir::get_home_directory() {
-                            Some(home_directory_path) => {
-                                self.home_directory_path = home_directory_path;
-                                self.write_directories_from_path(&PathBuf::from(
-                                    &self.home_directory_path,
-                                ))?;
-                            }
-                            None => {
-                                self.error = std::io::Error::new(
-                                    ErrorKind::NotFound,
-                                    "Could not find home directory",
-                                )
-                                .to_string();
-                            }
-                        }
-                        self.update_path_input();
-                    }
-                    self.layout = Layout::DirectorySelectionLayout;
-                    Ok(())
+                   if let Err(error) = self.switch_layout_windows() {
+                        self.error = error.to_string();
+                   } 
+                   Ok(())
                 }
                 "macos" => {
-                    let mut path = PathBuf::from("/");
-                    self.insert_root_directory(&path);
-                    self.write_directory_to_tree(&path)?;
-                    path.push("Volumes");
-                    self.write_directory_to_tree(&path)?;
-                    self.get_volumes_on_macos();
-                    match directory::system_dir::get_home_directory() {
-                        Some(home_path) => {
-                            self.home_directory_path = home_path;
-                            self.write_directories_from_path(&PathBuf::from(
-                                &self.home_directory_path,
-                            ))?;
-                        }
-                        None => {
-                            self.error = std::io::Error::new(
-                                ErrorKind::NotFound,
-                                "Could not find home directory",
-                            )
-                            .to_string();
-                        }
-                    }
-
-                    self.update_path_input();
-                    self.layout = Layout::DirectorySelectionLayout;
-                    Ok(())
+                   if let Err(error) = self.switch_layout_macos() {
+                        self.error = error.to_string();
+                   } 
+                   Ok(())
                 }
                 "linux" => {
-                    let path = PathBuf::from("/");
-                    self.insert_root_directory(&path);
-                    self.write_directory_to_tree(&path)?;
-
-                    match directory::system_dir::get_home_directory() {
-                        Some(home_path) => {
-                            self.home_directory_path = home_path;
-                            self.write_directories_from_path(&PathBuf::from(
-                                &self.home_directory_path,
-                            ))?;
-                        }
-                        None => {
-                            self.error = std::io::Error::new(
-                                ErrorKind::NotFound,
-                                "Could not find home directory",
-                            )
-                            .to_string();
-                        }
-                    }
-
-                    self.layout = Layout::DirectorySelectionLayout;
-                    self.update_path_input();
-                    Ok(())
+                   if let Err(error) = self.switch_layout_linux() {
+                        self.error = error.to_string();
+                   } 
+                   self.layout = Layout::DirectorySelectionLayout;
+                   Ok(())
                 },
                 _ => Err(std::io::Error::new(ErrorKind::Other, "Operating system not supported")),
             },
@@ -630,9 +519,67 @@ impl App {
         }
     }
 
+    fn switch_layout_windows(&mut self) -> std::io::Result<()> {
+        if let Some(first) = self.get_drives_on_windows().first() {
+            let path = PathBuf::from(first);
+            for path in self.get_drives_on_windows() {
+                self.external_storage.insert(path);
+            }
+            self.insert_root_directory(&path);
+            self.write_home_directory()?;
+            self.update_path_input();
+        }
+        Ok(())
+    }
+
+    fn switch_layout_macos(&mut self) -> std::io::Result<()> {
+        let mut path = PathBuf::from("/");
+        self.insert_root_directory(&path);
+        self.write_directory_to_tree(&path)?;
+        path.push("Volumes");
+        self.write_directory_to_tree(&path)?;
+        self.get_volumes_on_macos();
+        self.write_home_directory()?;
+        self.update_path_input();
+        Ok(())
+    }
+
+    fn switch_layout_linux(&mut self) -> std::io::Result<()> {
+        let mut path = PathBuf::from("/");
+        self.insert_root_directory(&path);
+        self.write_directory_to_tree(&path)?;
+        path.push("run");
+        self.write_directory_to_tree(&path)?;
+        path.push("media");
+        self.write_directory_to_tree(&path)?;
+        self.get_volumes_on_linux();
+        self.write_home_directory()?;
+        self.update_path_input();
+        Ok(())
+    }
+
+    fn write_home_directory(&mut self) -> std::io::Result<()> {
+        match directory::system_dir::get_home_directory() {
+            Some(home_path) => {
+                self.home_directory_path = home_path;
+                self.write_directories_from_path(&PathBuf::from(
+                    &self.home_directory_path,
+                ))?;
+                return Ok(());
+            }
+            None => {
+                return Err(std::io::Error::new(
+                    ErrorKind::NotFound,
+                    "Could not find home directory",
+                ));
+            }
+        }
+    }
+
     fn init_app_data(&mut self) {
         self.order_of_filename_components = vec![String::from("Original filename")];
         self.directories_selected.clear();
+        self.directory_selected = None;
         self.date_type_selected = None;
         self.files_selected.clear();
 
@@ -686,6 +633,17 @@ impl App {
             "macos" => {
                 self.path.clear();
                 self.path.push("/Volumes");
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.path.push(external);
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.update_path_input();
+                Ok(())
+            }
+            "linux" => {
+                self.path.clear();
+                self.path.push("/run");
+                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.path.push("media"); 
                 self.write_directory_to_tree(&PathBuf::from(&self.path))?;
                 self.path.push(external);
                 self.write_directory_to_tree(&PathBuf::from(&self.path))?;
@@ -815,6 +773,22 @@ impl App {
                 if let Some(volumes) = volumes_dir.get_directories() {
                     for key in volumes.keys() {
                         self.external_storage.insert(OsString::from(&key));
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_volumes_on_linux(&mut self) {
+        if let Some(directories) = self.root.get_directories() {
+            if let Some(run) = directories.get(&OsString::from("run")) {
+                if let Some(run_sub_dirs) = run.get_directories() {
+                    if let Some(media) = run_sub_dirs.get(&OsString::from("media")) {
+                        if let Some(media_sub_dirs) = media.get_directories() {
+                            for key in media_sub_dirs.keys() {
+                                self.external_storage.insert(OsString::from(&key));
+                            }
+                        }
                     }
                 }
             }
@@ -953,24 +927,23 @@ impl App {
     ) -> std::io::Result<()> {
         if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
             while let Some((key, value)) = self.files_selected.pop_last() {
-                if let Some(file_name) = key.to_str() {
-                    let mut renamed_file_name = String::new();
-                    let file_count = selected_dir.get_file_count();
-                    organize_files::rename_file_name(
-                        organize_files::RenameData::build(
-                        &mut renamed_file_name,
-                        &checkbox_states,
-                        &self.new_directory_name,
-                        &self.filename_input,
-                        file_count,
-                        &self.order_of_filename_components,
-                        file_name,
-                        &value,
-                        date_type,
-                        self.index_position,
-                        ));
-                    selected_dir.insert_file(OsString::from(renamed_file_name), value);
-                }
+                let file_name = app_util::convert_os_str_to_str(&key)?;
+                let mut renamed_file_name = String::new();
+                let file_count = selected_dir.get_file_count();
+                organize_files::rename_file_name(
+                    organize_files::RenameData::build(
+                    &mut renamed_file_name,
+                    &checkbox_states,
+                    &self.new_directory_name,
+                    &self.filename_input,
+                    file_count,
+                    &self.order_of_filename_components,
+                    file_name,
+                    &value,
+                    date_type,
+                    self.index_position,
+                    ));
+                selected_dir.insert_file(OsString::from(renamed_file_name), value);
             }
             return Ok(());
         }
@@ -1245,5 +1218,38 @@ impl App {
                 ));
             }
         }
+    }
+
+    fn insert_files_to_selected_dir(&mut self) -> std::io::Result<()> {
+        if let Some(selected_dir_path) = &self.directory_selected {
+            if let Some(selected_dir) =
+                self.root.get_mut_directory_by_path(selected_dir_path)
+            {
+                let (checkbox_states, date_type) = save_directory::read_directory_rules_from_file(
+                    &self.home_directory_path,
+                    selected_dir_path,
+                )?; 
+                if let Some(last) = selected_dir_path.iter().last() {
+                    let directory_name = app_util::convert_os_str_to_str(last)?;
+                    organize_files::move_files_to_organized_directory(
+                        &self.path,
+                        &mut self.files_organized,
+                        selected_dir,
+                        organize_files::OrganizingData::new(
+                            self.files_selected.clone(),
+                            checkbox_states,
+                            directory_name,
+                            &self.filename_input,
+                            &self.order_of_filename_components,
+                            date_type,
+                            self.index_position,
+                        )
+                    )?;
+                    self.files_selected.clear();
+                    return Ok(());
+                }
+            }
+        }
+        Err(std::io::Error::new(ErrorKind::NotFound, "Could not find selected directory."))
     }
 }
