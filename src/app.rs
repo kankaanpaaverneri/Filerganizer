@@ -12,6 +12,7 @@ use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
 use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
+use crate::save_directory::SAVE_FILE_NAME;
 use crate::{app_util, directory};
 
 pub struct App {
@@ -249,7 +250,7 @@ impl App {
                 Task::none()
             }
             Message::CreateDirectoryWithSelectedFiles => {
-                if let Err(error) = self.is_directory_creation_valid() {
+                if let Err(error) = self.is_directory_creation_valid(SAVE_FILE_NAME) {
                     self.error = error.to_string();
                     return Task::none();
                 }
@@ -351,7 +352,7 @@ impl App {
                         Ok(_) => {
                             match save_directory::remove_directory_from_file(
                                 &self.home_directory_path,
-                                path_to_selected_directory,
+                                &path_to_selected_directory,
                             ) {
                                 Ok(_) => {}
                                 Err(error) => self.error = error.to_string(),
@@ -374,7 +375,7 @@ impl App {
                         Ok(_) => {
                             match save_directory::remove_directory_from_file(
                                 &self.home_directory_path,
-                                path_to_selected_directory,
+                                &path_to_selected_directory,
                             ) {
                                 Ok(_) => {}
                                 Err(error) => self.error = error.to_string(),
@@ -811,20 +812,11 @@ impl App {
 
     fn is_duplicate_files_selected(&self) -> std::io::Result<()> {
         let selected_dir = self.root.get_directory_by_path(&self.path);
-        if let Some(files) = selected_dir.get_files() {
-            for key in files.keys() {
-                if self.files_selected.contains_key(key) {
-                    return Err(std::io::Error::new(
-                        ErrorKind::InvalidInput,
-                        "Duplicate file names found",
-                    ));
-                }
-            }
-        }
+        selected_dir.contains_unique_files(&self.files_selected)?;
         Ok(())
     }
 
-    fn is_directory_creation_valid(&self) -> std::io::Result<()> {
+    fn is_directory_creation_valid(&self, save_file_name: &str) -> std::io::Result<()> {
         if self.files_selected.is_empty() {
             return Err(std::io::Error::new(
                 ErrorKind::NotFound,
@@ -840,7 +832,7 @@ impl App {
         let mut path_to_directory = PathBuf::from(&self.path);
         path_to_directory.push(&self.new_directory_name);
         if let Err(error) =
-            save_directory::read_save_file_content(&self.home_directory_path, &path_to_directory)
+            save_directory::read_save_file_content(&self.home_directory_path, &path_to_directory, save_file_name)
         {
             if let ErrorKind::Other = error.kind() {
                 return Err(error);
@@ -1179,9 +1171,7 @@ impl App {
             .root
             .get_mut_directory_by_path(&path_to_selected_directory)
         {
-            if let Err(error) =
-                selected_dir.get_files_recursive(&mut files_holder, path_to_selected_directory)
-            {
+            if let Err(error) = selected_dir.get_files_recursive(&mut files_holder) {
                 error_container = Some(error);
             }
         }
@@ -1251,5 +1241,119 @@ impl App {
             }
         }
         Err(std::io::Error::new(ErrorKind::NotFound, "Could not find selected directory."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::Metadata;
+    use crate::directory::system_dir;
+    use std::fs;
+
+    #[test]
+    fn test_filter_order_of_file_name_components() {
+        let mut app = App::default();         
+        app.order_of_filename_components.push(String::from(filename_components::DATE));
+        app.order_of_filename_components.push(String::from(filename_components::ORIGINAL_FILENAME));
+        app.order_of_filename_components.push(String::from(filename_components::DIRECTORY_NAME));
+        app.order_of_filename_components.push(String::from(filename_components::CUSTOM_FILE_NAME));
+        app.filter_order_of_filename_components(String::from(filename_components::DATE));
+        assert_eq!(app.order_of_filename_components, vec![
+            String::from(filename_components::ORIGINAL_FILENAME),
+            String::from(filename_components::DIRECTORY_NAME),
+            String::from(filename_components::CUSTOM_FILE_NAME)
+        ])
+    }
+    
+    const TEST_SAVE_FILE: &str = ".test_save_file.csv";
+    #[test]
+    fn test_is_directory_creation_valid() {
+        let mut app = App::default(); 
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            assert_eq!(error.to_string(), "No files selected.");    
+        }
+
+        app.files_selected.insert(OsString::from("file1.txt"), File::new(Metadata::new()));
+        app.files_selected.insert(OsString::from("file2.txt"), File::new(Metadata::new()));
+        app.files_selected.insert(OsString::from("file3.txt"), File::new(Metadata::new()));
+
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            assert_eq!(error.to_string(), "Directory name not specified.");    
+        }
+
+        app.new_directory_name = String::from("content");
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            assert_eq!(error.to_string(), "Directory name not specified.");    
+        }
+        let home_path = system_dir::get_home_directory().expect("Could not get home directory path");
+        let _save_file = save_directory::create_save_file(
+            &home_path, TEST_SAVE_FILE
+        ).expect("Failed to create temporary save file."); 
+        let mut path_to_file = PathBuf::from(home_path); 
+        path_to_file.push(TEST_SAVE_FILE);
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            fs::remove_file(path_to_file).expect("Failed to remove test save file");
+            panic!("is_directory_creation_valid could not read temporary save file: {}", error); 
+        }
+        app.checkbox_states.remove_original_file_name = true;
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            assert_eq!(error.to_string(), "If original file name is removed add custom name");
+        }
+        app.filename_input = String::from("filename");
+        app.checkbox_states.add_custom_name = true;
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            assert_eq!(error.to_string(), "Index position not found");
+        }
+
+        app.index_position = Some(IndexPosition::Before);
+        if let Err(error) = app.is_directory_creation_valid(TEST_SAVE_FILE) {
+            fs::remove_file(path_to_file).expect("Failed to remove test save file");
+            panic!("Directory creation should be valid: {}", error);
+        }
+        fs::remove_file(path_to_file).expect("Failed to remove test save file");
+    }
+
+    #[test]
+    fn test_update_path_prefix() {
+        let mut app = App::default();
+        app.external_storage.insert(OsString::from("C:/"));
+        app.external_storage.insert(OsString::from("D:/"));
+        app.external_storage.insert(OsString::from("E:/"));
+        app.update_path_prefix(&OsString::from("C:/"));
+        assert_eq!(app.path, PathBuf::from("C:/"));
+        app.update_path_prefix(&OsString::from("F:/"));
+        assert_eq!(app.path, PathBuf::from("C:/"));
+        //fn update_path_prefix(&mut self, key: &OsStr) {
+    }
+
+    #[test]
+    fn test_update_path_input() {
+        let mut app = App::default();
+        app.path = PathBuf::from("/home/verneri/rust");
+        assert_eq!(app.path_input, String::from(""));
+        app.update_path_input();
+        assert_eq!(app.path_input, String::from("/home/verneri/rust"));
+        //fn update_path_input(&mut self) {
+    }
+
+    #[test]
+    fn test_insert_path_to_directories_selected() {
+       let mut app = App::default();
+       app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/rust"));
+       assert_eq!(app.directories_selected, vec![PathBuf::from("/home/verneri/rust")]);
+       app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/content"));
+       assert_eq!(app.directories_selected, vec![
+           PathBuf::from("/home/verneri/rust"),
+           PathBuf::from("/home/verneri/content")
+       ]);
+       app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/images"));
+       assert_eq!(app.directories_selected, vec![
+           PathBuf::from("/home/verneri/rust"),
+           PathBuf::from("/home/verneri/content"),
+           PathBuf::from("/home/verneri/images")
+       ]);
+       app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/content"));
+       assert_eq!(app.directories_selected, vec![PathBuf::from("/home/verneri/rust")]);
     }
 }

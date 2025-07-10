@@ -1,12 +1,17 @@
 use crate::{layouts::CheckboxStates, metadata::DateType};
+use crate::app_util;
 use std::{
     io::{ErrorKind, Read, Write},
     path::PathBuf,
 };
 
-fn get_save_file_location(home_directory_path: &PathBuf) -> PathBuf {
+const CSV_FILE_HEADER: &str = "path, organize_by_file_type, organize_by_date, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, insert_directory_name_to_file_name, insert_date_to_file_name, remove_original_file_name, add_custom_name, date_type\n";
+
+pub const SAVE_FILE_NAME: &str = ".save_file.csv";
+
+fn get_save_file_location(home_directory_path: &PathBuf, save_file_name: &str) -> PathBuf {
     let mut path_to_save_file = PathBuf::from(home_directory_path);
-    path_to_save_file.push(".save_file.csv");
+    path_to_save_file.push(save_file_name);
     path_to_save_file
 }
 
@@ -18,30 +23,25 @@ pub fn write_created_directory_to_save_file(
 ) -> std::io::Result<()> {
     match std::fs::File::options()
         .append(true)
-        .open(get_save_file_location(home_directory_path))
+        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
     {
         Ok(mut file) => {
-            if let Some(dir_path) = directory_path.to_str() {
-                let mut new_directory_data = String::new();
-                write_directory_data_to_string(
-                    &mut new_directory_data,
-                    dir_path,
-                    checkbox_states,
-                    date_type,
-                );
-                file.write(new_directory_data.as_bytes())?;
-            } else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Could not convert path to string.",
-                ));
-            }
+            // Append to existing file
+            let dir_path = app_util::convert_path_to_str(&directory_path)?;
+            let mut new_directory_data = String::new();
+            write_directory_data_to_string(
+                &mut new_directory_data,
+                dir_path,
+                checkbox_states,
+                date_type,
+            );
+            file.write(new_directory_data.as_bytes())?;
         }
         Err(_) => {
-            // Create file
-            let mut save_file = create_save_file(home_directory_path)?;
-            if let Some(dir_path) = directory_path.to_str() {
-                let mut file_content = String::from("path, organize_by_file_type, organize_by_date, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, insert_directory_name_to_file_name, insert_date_to_file_name, remove_original_file_name, add_custom_name, date_type\n");
+            // Create new file
+            let mut save_file = create_save_file(home_directory_path, SAVE_FILE_NAME)?;
+            let dir_path = app_util::convert_path_to_str(&directory_path)?;
+            let mut file_content = String::from(CSV_FILE_HEADER);
                 write_directory_data_to_string(
                     &mut file_content,
                     dir_path,
@@ -49,12 +49,6 @@ pub fn write_created_directory_to_save_file(
                     date_type,
                 );
                 save_file.write(file_content.as_bytes())?;
-            } else {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Could not convert path to string.",
-                ));
-            }
         }
     }
     Ok(())
@@ -62,28 +56,18 @@ pub fn write_created_directory_to_save_file(
 
 pub fn remove_directory_from_file(
     home_directory_path: &PathBuf,
-    path_to_extracted_dir: PathBuf,
+    path_to_extracted_dir: &PathBuf,
 ) -> std::io::Result<()> {
     let read_result = match std::fs::File::options()
         .read(true)
-        .open(get_save_file_location(home_directory_path))
+        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
     {
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)?;
 
-            let filtered: Vec<&str> = buffer
-                .lines()
-                .filter_map(|line| {
-                    if let Some((path, _rest)) = line.split_once(",") {
-                        if PathBuf::from(path) == path_to_extracted_dir {
-                            return None;
-                        }
-                    }
-
-                    Some(line)
-                })
-                .collect();
+            // Filter file content 
+            let filtered = filter_path_from_file_content(&mut buffer, path_to_extracted_dir);
             let mut updated_file_content = String::new();
             for line in filtered {
                 updated_file_content.push_str(line);
@@ -97,7 +81,7 @@ pub fn remove_directory_from_file(
     let mut file = std::fs::File::options()
         .truncate(true)
         .write(true)
-        .open(get_save_file_location(home_directory_path))?;
+        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))?;
     file.set_len(0)?;
     file.write(updated_file_content.as_bytes())?;
     Ok(())
@@ -109,7 +93,7 @@ pub fn read_directory_rules_from_file(
 ) -> std::io::Result<(CheckboxStates, Option<DateType>)> {
     match std::fs::File::options()
         .read(true)
-        .open(get_save_file_location(home_directory_path))
+        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
     {
         Ok(mut file) => {
             let mut buffer = String::new();
@@ -131,67 +115,44 @@ pub fn read_directory_rules_from_file(
 pub fn read_save_file_content(
     home_directory_path: &PathBuf,
     directory_path: &PathBuf,
+    save_file_name: &str
 ) -> std::io::Result<()> {
-    match std::fs::File::options()
+    let mut file = std::fs::File::options()
         .read(true)
-        .open(get_save_file_location(home_directory_path))
-    {
-        Ok(mut file) => {
-            let mut file_content = String::new();
-            file.read_to_string(&mut file_content)?;
-            if let Some(dir_path) = directory_path.to_str() {
-                for line in file_content.lines() {
-                    if let Some((path, _checkbox_states)) = line.split_once(",") {
-                        if path == dir_path {
-                            return Err(std::io::Error::new(
-                                ErrorKind::Other,
-                                "Similar path already exists in .save_file.csv",
-                            ));
-                        }
-                    }
-                }
+        .open(get_save_file_location(home_directory_path, save_file_name))?;
+    let mut file_content = String::new();
+    file.read_to_string(&mut file_content)?;
+    let dir_path = app_util::convert_path_to_str(directory_path)?;
+    for line in file_content.lines() {
+        if let Some((path, _checkbox_states)) = line.split_once(",") {
+            if path == dir_path {
+                return Err(std::io::Error::new(
+                    ErrorKind::Other,
+                    "Similar path already exists.",
+                ));
             }
-            Ok(())
         }
-        Err(error) => return Err(error),
     }
+    Ok(())
 }
 
 fn parse_rules(list_of_rules: &Vec<&str>) -> CheckboxStates {
     let mut checkbox_states = CheckboxStates::default();
-    if list_of_rules[1] == "1" {
-        checkbox_states.organize_by_filetype = true;
-    }
-    if list_of_rules[2] == "1" {
-        checkbox_states.organize_by_date = true;
-    }
-
-    if list_of_rules[3] == "1" {
-        checkbox_states.remove_uppercase = true;
-    }
-
-    if list_of_rules[4] == "1" {
-        checkbox_states.replace_spaces_with_underscores = true;
-    }
-
-    if list_of_rules[5] == "1" {
-        checkbox_states.use_only_ascii = true;
-    }
-
-    if list_of_rules[6] == "1" {
-        checkbox_states.insert_directory_name_to_file_name = true;
-    }
-
-    if list_of_rules[7] == "1" {
-        checkbox_states.insert_date_to_file_name = true;
-    }
-
-    if list_of_rules[8] == "1" {
-        checkbox_states.remove_original_file_name = true;
-    }
-
-    if list_of_rules[9] == "1" {
-        checkbox_states.add_custom_name = true;
+    let mut checkbox_states_array: [&mut bool; 9] = [
+        &mut checkbox_states.organize_by_filetype,
+        &mut checkbox_states.organize_by_date,
+        &mut checkbox_states.remove_uppercase,
+        &mut checkbox_states.replace_spaces_with_underscores,
+        &mut checkbox_states.use_only_ascii,
+        &mut checkbox_states.insert_directory_name_to_file_name,
+        &mut checkbox_states.insert_date_to_file_name,
+        &mut checkbox_states.remove_original_file_name,
+        &mut checkbox_states.add_custom_name
+    ];
+    for (i, checkbox) in checkbox_states_array.iter_mut().enumerate() {
+        if list_of_rules[i+1] == "1" {
+            **checkbox = true;
+        }
     }
     checkbox_states
 }
@@ -225,8 +186,8 @@ fn parse_file_result<'a>(buffer: &'a str, path: &'a PathBuf) -> Option<Vec<&'a s
     None
 }
 
-fn create_save_file(home_directory_path: &PathBuf) -> std::io::Result<std::fs::File> {
-    match std::fs::File::create(get_save_file_location(home_directory_path)) {
+pub fn create_save_file(home_directory_path: &PathBuf, save_file_name: &str) -> std::io::Result<std::fs::File> {
+    match std::fs::File::create(get_save_file_location(home_directory_path, save_file_name)) {
         Ok(file) => Ok(file),
         Err(error) => Err(error),
     }
@@ -240,59 +201,15 @@ fn write_directory_data_to_string(
 ) {
     file_content.push_str(dir_path);
     file_content.push_str(",");
-    if checkbox_states.organize_by_filetype {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.organize_by_date {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.remove_uppercase {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.replace_spaces_with_underscores {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.use_only_ascii {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.insert_directory_name_to_file_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.insert_date_to_file_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.remove_original_file_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
-
-    if checkbox_states.add_custom_name {
-        file_content.push_str("1,");
-    } else {
-        file_content.push_str("0,");
-    }
+    write_value_to_file_content(file_content, checkbox_states.organize_by_filetype);
+    write_value_to_file_content(file_content, checkbox_states.organize_by_date);
+    write_value_to_file_content(file_content, checkbox_states.remove_uppercase);
+    write_value_to_file_content(file_content, checkbox_states.replace_spaces_with_underscores);
+    write_value_to_file_content(file_content, checkbox_states.use_only_ascii);
+    write_value_to_file_content(file_content, checkbox_states.insert_directory_name_to_file_name);
+    write_value_to_file_content(file_content, checkbox_states.insert_date_to_file_name);
+    write_value_to_file_content(file_content, checkbox_states.remove_original_file_name);
+    write_value_to_file_content(file_content, checkbox_states.add_custom_name);
 
     if let Some(date_type) = date_type {
         match date_type {
@@ -302,5 +219,141 @@ fn write_directory_data_to_string(
         }
     } else {
         file_content.push_str("None\n");
+    }
+}
+
+fn write_value_to_file_content(file_content: &mut String, value: bool) {
+    if value {
+        file_content.push_str("1,");
+    } else {
+        file_content.push_str("0,");
+    }
+}
+
+fn filter_path_from_file_content<'a>(buffer: &'a mut String, path_to_remove: &'a PathBuf) -> Vec<&'a str> {
+    buffer
+        .lines()
+        .filter_map(|line| {
+            if let Some((path, _rest)) = line.split_once(",") {
+                if &PathBuf::from(path) == path_to_remove {
+                    return None;
+                }
+            }
+            Some(line)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; 
+    
+    #[test]
+    fn test_filter_path_from_file_content() {
+        let mut file_content = String::from(CSV_FILE_HEADER);
+        file_content.push_str("/home/verneri/screen_record/records,0,0,1,1,1,1,1,1,1,Created\n");
+        file_content.push_str("/home/verneri/screen_record/template,1,1,1,1,1,1,1,1,1,Modified\n");
+
+        let path_to_remove = PathBuf::from("/home/verneri/screen_record/template");
+
+        let filtered = filter_path_from_file_content(
+            &mut file_content,
+            &path_to_remove
+        );
+        let csv_file_header = String::from(CSV_FILE_HEADER);
+        let replaced = csv_file_header.replace("\n", "");
+        let expected_file_content = vec![
+            &replaced,
+            "/home/verneri/screen_record/records,0,0,1,1,1,1,1,1,1,Created",
+        ]; 
+        assert_eq!(expected_file_content, filtered);
+
+        let second_path_to_remove = PathBuf::from("/home/verneri/screen_record/records");
+
+        let second_filtered = filter_path_from_file_content(
+            &mut file_content,
+            &second_path_to_remove
+        );
+        let second_expected_file_content = vec![
+            &replaced,
+            "/home/verneri/screen_record/template,1,1,1,1,1,1,1,1,1,Modified"
+        ];
+        assert_eq!(second_expected_file_content, second_filtered);
+    }
+
+    #[test]
+    fn test_parse_file_result() {
+        let mut buffer = String::from(CSV_FILE_HEADER); 
+        buffer.push_str("/home/verneri/screen_record/records,0,0,1,1,1,1,1,1,1,Created\n");
+        buffer.push_str("/home/verneri/screen_record/template,1,1,1,1,1,1,1,1,1,Modified\n");
+        let path = PathBuf::from("/home/verneri/screen_record/template"); 
+        if let Some(result) = parse_file_result(&buffer, &path) {
+            assert_eq!(result, vec![
+                "/home/verneri/screen_record/template",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "1",
+                "Modified"
+            ]);
+        } else {
+            panic!("Could not parse file result");
+        }
+    }
+
+    #[test]
+    fn test_parse_date_type() {
+        let list_of_rules = vec![
+            "/home/verneri/screen_record/template",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "Modified"
+        ];
+        if let Some(date_type) = parse_date_type(&list_of_rules) {
+            assert_eq!(date_type, DateType::Modified); 
+        } else {
+            panic!("Could not parse date type");
+        }
+    }
+
+    #[test]
+    fn test_parse_rules() {
+        let list_of_rules = vec![
+            "/home/verneri/screen_record/template",
+            "0",
+            "0",
+            "1",
+            "1",
+            "1",
+            "1",
+            "1",
+            "0",
+            "0",
+            "Modified"
+        ];
+
+        assert_eq!(parse_rules(&list_of_rules), CheckboxStates::new(
+            false,
+            false,
+            true,
+            true,
+            true,
+            true,
+            true,
+            false,
+            false
+        ));
     }
 }

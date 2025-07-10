@@ -64,6 +64,10 @@ impl Metadata {
         self.destination_path = Some(destination_path);
     }
 
+    pub fn get_name(&self) -> Option<OsString> {
+        self.name.clone()
+    }
+
     pub fn get_created(&self) -> Option<DateTime<Local>> {
         self.created
     }

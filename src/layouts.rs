@@ -21,7 +21,7 @@ use crate::{
     metadata::{DateType, Metadata},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CheckboxStates {
     pub organize_by_filetype: bool,
     pub organize_by_date: bool,
