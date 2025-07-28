@@ -487,12 +487,14 @@ impl App {
                    if let Err(error) = self.switch_layout_windows() {
                         self.error = error.to_string();
                    } 
+                   self.layout = Layout::DirectorySelectionLayout;
                    Ok(())
                 }
                 "macos" => {
                    if let Err(error) = self.switch_layout_macos() {
                         self.error = error.to_string();
                    } 
+                   self.layout = Layout::DirectorySelectionLayout;
                    Ok(())
                 }
                 "linux" => {
@@ -529,8 +531,9 @@ impl App {
             self.insert_root_directory(&path);
             self.write_home_directory()?;
             self.update_path_input();
+            return Ok(());
         }
-        Ok(())
+        Err(std::io::Error::new(ErrorKind::NotFound, "Could not get drives on Windows"))
     }
 
     fn switch_layout_macos(&mut self) -> std::io::Result<()> {

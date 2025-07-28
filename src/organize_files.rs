@@ -815,7 +815,8 @@ mod tests {
             Some(PathBuf::new())
         )), &DateType::Created);
         if let Ok(result) = result {
-            assert_eq!(result, "19700101");
+            let formatted = convert_system_time_to_string(SystemTime::UNIX_EPOCH);
+            assert_eq!(result, formatted);
         } else {
             panic!("Result was not Ok");
         }
@@ -893,6 +894,12 @@ mod tests {
         files_selected
     }
 
+    fn convert_system_time_to_string(time: SystemTime) -> String {
+        use chrono::{DateTime, Local};
+        let date_time: DateTime<Local> = DateTime::<Local>::from(time);
+        date_time.format("%Y%m%d").to_string()
+    }
+
     #[test]
     fn test_create_file_dates() {
         let files_selected = create_dummy_files_selected();
@@ -901,7 +908,7 @@ mod tests {
             DateType::Created
         );
         for key in file_date_dirs.keys() {
-            assert_eq!(&OsString::from("19700101"), key)
+            assert_eq!(&OsString::from(convert_system_time_to_string(SystemTime::UNIX_EPOCH)), key)
         } 
     }
     #[test]

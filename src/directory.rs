@@ -394,13 +394,25 @@ pub mod tests {
     use super::*;
 
     #[test]
-    fn test_indentify_prefix() {
-        let path = PathBuf::from("/home/verneri/rust");    
+    fn test_identify_prefix() {
+        let path = match std::env::consts::OS {
+            "windows" => PathBuf::from("C:/home/verneri/rust"),
+            "macos" | "linux" => PathBuf::from("/home/verneri/rust"),
+            _ => PathBuf::new()
+        }; 
         let prefix = identify_prefix(&path);
-        assert_eq!(prefix, String::from("//home"));
+        match std::env::consts::OS {
+            "windows" => assert_eq!(prefix, String::from("C:/\\")),
+            "macos" | "linux" => assert_eq!(prefix, String::from("//home")),
+            _ => panic!("Not supported operating system")
+        };
         let path = PathBuf::from("C:/Users/verneri");
         let prefix = identify_prefix(&path);
-        assert_eq!(prefix, String::from("C:/Users"));
+        match std::env::consts::OS {
+            "windows" => assert_eq!(prefix, String::from("C:/\\")),
+            "macos" | "linux" => assert_eq!(prefix, String::from("C:/Users")),
+            _ => panic!("Not supported operating system")
+        };
     }
     
     #[test]
@@ -515,7 +527,12 @@ pub mod tests {
     }
 
     fn get_dummy_directory_tree() -> Directory {
-        let mut directory = Directory::new(create_dummy_metadata_with_name(OsString::from("/")));
+        let mut root_identifier = match std::env::consts::OS {
+            "windows" => OsString::from("C:/"),
+            "macos" | "linux" => OsString::from("/"),
+            _ => OsString::new()
+        };
+        let mut directory = Directory::new(create_dummy_metadata_with_name(OsString::from(&root_identifier)));
         directory.insert_directory(Directory::new(create_dummy_metadata_with_name(
                 OsString::from("text_files"))),
                 "text_files"
@@ -532,7 +549,8 @@ pub mod tests {
         directory.insert_file(OsString::from("file1.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file2.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file3.txt"), File::new(Metadata::new()));
-        if let Some(text_files) = directory.get_mut_directory_by_path(&PathBuf::from("/text_files")) {
+        root_identifier.push("text_files");
+        if let Some(text_files) = directory.get_mut_directory_by_path(&PathBuf::from(&root_identifier)) {
             text_files.insert_directory(Directory::new(create_dummy_metadata_with_name(OsString::from("docx"))), "docx");
             text_files.insert_directory(Directory::new(create_dummy_metadata_with_name(OsString::from("txt"))), "txt");
             text_files.insert_file(OsString::from("file4.txt"), File::new(Metadata::new()));
@@ -544,14 +562,24 @@ pub mod tests {
     #[test]
     fn test_get_directory_by_path() {
         let directory = get_dummy_directory_tree();
-        let dir = directory.get_directory_by_path(&PathBuf::from("/text_files/txt"));
+        let search_path = match std::env::consts::OS {
+            "windows" => PathBuf::from("C:/text_files/txt"),
+            "macos" | "linux" => PathBuf::from("/text_files/txt"),
+            _ => PathBuf::new()
+        };
+        let dir = directory.get_directory_by_path(&search_path);
         if let Some(name) = dir.get_name() {
             assert_eq!(name, OsString::from("txt"));
         } else {
             panic!("Didn't get name from directory");
         }
 
-        let dir = directory.get_directory_by_path(&PathBuf::from("/content/video"));
+        let search_path = match std::env::consts::OS {
+            "windows" => PathBuf::from("C:/content/video"),
+            "macos" | "linux" => PathBuf::from("/content/video"),
+            _ => PathBuf::new()
+        };
+        let dir = directory.get_directory_by_path(&search_path);
         if let Some(root) = dir.get_name() {
             assert_eq!(root, OsString::from("content"));
         } else {
@@ -561,8 +589,14 @@ pub mod tests {
 
     #[test]
     fn test_get_mut_directory_by_path() {
-        let mut directory = get_dummy_directory_tree(); 
-        if let Some(txt) = directory.get_mut_directory_by_path(&PathBuf::from("/text_files/txt")) {
+        let mut directory = get_dummy_directory_tree();
+        let search_path = match std::env::consts::OS {
+            "windows" => PathBuf::from("C:/text_files/txt"),
+            "macos" | "linux" => PathBuf::from("/text_files/txt"),
+            _ => PathBuf::new()
+        };
+
+        if let Some(txt) = directory.get_mut_directory_by_path(&search_path) {
            if let Some(txt_name) = txt.get_name() {
                 assert_eq!(txt_name, OsString::from("txt"));
            } else {
@@ -572,7 +606,13 @@ pub mod tests {
             panic!("Didn't get directory by path");
         }
 
-        if let Some(docx) = directory.get_mut_directory_by_path(&PathBuf::from("/text_files/docx")) {
+        let search_path = match std::env::consts::OS {
+            "windows" => PathBuf::from("C:/text_files/docx"),
+            "macos" | "linux" => PathBuf::from("/text_files/docx"),
+            _ => PathBuf::new()
+        };
+
+        if let Some(docx) = directory.get_mut_directory_by_path(&search_path) {
             if let Some(docx_name) = docx.get_name() {
                 assert_eq!(docx_name, OsString::from("docx"));
             } else {
