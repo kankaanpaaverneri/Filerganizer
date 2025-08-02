@@ -272,7 +272,7 @@ fn rename_files(
                 path_to_selected_directory,
                 directory,
                 data.directory_name,
-                files_organized // Pass in as parameter
+                files_organized 
             )?;
         }
     }
@@ -298,6 +298,7 @@ fn insert_renamed_files_to_dir(
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct SortData<'a> {
     path_to_selected_directory: &'a PathBuf,
     files_organized: &'a mut BTreeMap<OsString, File>,
@@ -375,7 +376,8 @@ pub fn sort_files_by_file_type(
             sort_data.new_directory_name,
             key,
             file,
-            &mut sort_data.files_organized
+            &mut sort_data.files_organized,
+            sort_data.mark_as_organized
         )?;
     }
     Ok(())
@@ -405,7 +407,13 @@ pub fn sort_files_by_date(
                     sort_data.index_position,
                 )
             );
+            let mut directory_name = Some(sort_data.new_directory_name); 
+            if sort_data.checkbox_states.organize_by_filetype &&
+                sort_data.checkbox_states.organize_by_date {
+                    directory_name = None;
+            }
             insert_file_to_date_dir(
+                directory_name,
                 date_dir,
                 renamed_file_name,
                 sort_data.mark_as_organized,
@@ -419,6 +427,7 @@ pub fn sort_files_by_date(
     return Ok(());
 }
 
+#[derive(Debug)]
 pub struct RenameData<'a> {
     renamed_file_name: &'a mut String,
     checkbox_states: &'a CheckboxStates,
@@ -693,7 +702,7 @@ fn build_destination_path(path_components: Vec<&str>) -> PathBuf {
     path
 }
 
-fn create_destination_path(path_to_selected_directory: &PathBuf, path_components: Vec<&str>, file: &mut File) {
+pub fn create_destination_path(path_to_selected_directory: &PathBuf, path_components: Vec<&str>, file: &mut File) {
     let path_in_rule_directory = build_destination_path(path_components);
             
     let mut destination_path = PathBuf::from(path_to_selected_directory);
@@ -724,25 +733,32 @@ fn insert_file_to_file_type_dir(
     new_directory_name: &str,
     key: OsString,
     mut file: File,
-    files_organized: &mut BTreeMap<OsString, File>
+    files_organized: &mut BTreeMap<OsString, File>,
+    mark_as_organized: bool
 ) -> std::io::Result<()> {
     let file_type_dir = get_file_type_dir(file_name, file_type_directories)?;
     file_type_dir.file_already_exists_in_directory(&OsString::from(file_name))?;
     let mut file_type = String::new();
     if let Some(file_type_from_file_name) = get_file_type_from_file_name(file_name) {
         file_type.push_str(&file_type_from_file_name);
+    } else {
+        file_type.push_str("other");
     }
-    create_destination_path(path_to_selected_directory, vec![
-       new_directory_name,
-       &file_type,
-       file_name
-    ], &mut file);
-    files_organized.insert(key.clone(), file.clone());
+    if mark_as_organized {
+        create_destination_path(path_to_selected_directory, vec![
+           new_directory_name,
+           &file_type,
+           file_name
+        ], &mut file);
+        files_organized.insert(key.clone(), file.clone());
+    }
+
     file_type_dir.insert_file(OsString::from(file_name), file);
     Ok(())
 }
 
 fn insert_file_to_date_dir(
+    new_directory_name: Option<&str>,
     dir: &mut Directory,
     renamed_file_name: String,
     mark_as_organized: bool,
@@ -753,11 +769,18 @@ fn insert_file_to_date_dir(
 ) -> std::io::Result<()> {
     dir.file_already_exists_in_directory(&OsString::from(&renamed_file_name))?;
     if mark_as_organized {
-        create_destination_path(path_to_selected_directory, vec![
-            &formatted_date,
-            &renamed_file_name,
-        ], &mut file);
-        
+        if let Some(new_directory_name) = new_directory_name {
+            create_destination_path(path_to_selected_directory, vec![
+                new_directory_name,
+                &formatted_date,
+                &renamed_file_name,
+            ], &mut file);
+        } else {
+            create_destination_path(path_to_selected_directory, vec![
+                &formatted_date,
+                &renamed_file_name,
+            ], &mut file);
+        }
         files_organized.insert(OsString::from(&renamed_file_name), file.clone());
     }
     dir.insert_file(OsString::from(renamed_file_name), file);

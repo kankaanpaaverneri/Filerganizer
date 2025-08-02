@@ -14,6 +14,7 @@ use crate::organize_files;
 use crate::save_directory;
 use crate::save_directory::SAVE_FILE_NAME;
 use crate::{app_util, directory};
+use crate::filesystem;
 
 pub struct App {
     home_directory_path: PathBuf,
@@ -290,6 +291,12 @@ impl App {
                         std::io::Error::new(ErrorKind::NotFound, "No rename options specified")
                         .to_string();
                 }
+                if self.checkbox_states.insert_directory_name_to_file_name {
+                    self.error = std::io::Error::new(
+                        ErrorKind::Other, "Cannot insert directory name if just renaming files")
+                        .to_string();
+                    return Task::none();
+                }
                 if !self.checkbox_states.insert_date_to_file_name {
                     let result = self.rename_files_without_directory(
                         CheckboxStates::new(
@@ -406,8 +413,10 @@ impl App {
                 return Task::none();
             }
             Message::Commit => {
-                println!("Commit!");
-                println!("files_organized: {:?}", self.files_organized);
+                if let Err(error) = filesystem::move_files_organized(&self.files_organized) {
+                    self.error = error.to_string();
+                }
+                self.files_organized.clear();
                 return Task::none();
             }
             Message::Back => {
@@ -918,10 +927,10 @@ impl App {
     fn rename_files_without_directory(
         &mut self,
         checkbox_states: CheckboxStates,
-        date_type: Option<DateType>,
+        date_type: Option<DateType> 
     ) -> std::io::Result<()> {
         if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
-            while let Some((key, value)) = self.files_selected.pop_last() {
+            while let Some((key, mut value)) = self.files_selected.pop_last() {
                 let file_name = app_util::convert_os_str_to_str(&key)?;
                 let mut renamed_file_name = String::new();
                 let file_count = selected_dir.get_file_count();
@@ -938,7 +947,13 @@ impl App {
                     date_type,
                     self.index_position,
                     ));
+                organize_files::create_destination_path(&self.path, vec![
+                    &renamed_file_name
+                ], &mut value);
+                self.files_organized.insert(OsString::from(&renamed_file_name), value.clone());
                 selected_dir.insert_file(OsString::from(renamed_file_name), value);
+                
+                
             }
             return Ok(());
         }

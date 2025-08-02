@@ -88,6 +88,14 @@ impl Metadata {
         self.readonly
     }
 
+    pub fn get_origin_path(&self) -> Option<PathBuf> {
+        self.origin_path.clone()
+    }
+
+    pub fn get_destination_path(&self) -> Option<PathBuf> {
+        self.destination_path.clone()
+    }
+
     pub fn build(
         name: Option<OsString>,
         created: Option<SystemTime>,
