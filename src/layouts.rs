@@ -15,8 +15,10 @@ use iced::{
     Theme,
 };
 
+use chrono::{Local, DateTime};
+
 use crate::{
-    app::{App, Message},
+    app::{App, Message, filename_components},
     directory::Directory,
     metadata::{DateType, Metadata},
 };
@@ -181,7 +183,7 @@ impl Layout {
                 column![text(app.get_error())],
                 select_all_files_button,
                 row![
-                    scrollable(self.display_selected_path_content(app)).width(FillPortion(2)),
+                    scrollable(self.display_selected_path_content(app)).width(FillPortion(1)),
                     scrollable(
                         column![
                             self.selected_directory_option(app),
@@ -273,7 +275,9 @@ impl Layout {
                 .align_y(Vertical::Center)
                 .spacing(5)
             ],
-            column![self.order_of_file_name_components(app)]
+            column![
+                self.order_of_file_name_components(app)
+            ]
         ]
     }
 
@@ -303,17 +307,92 @@ impl Layout {
         return row![];
     }
 
+    fn get_custom_name_example(&self, app: &App, index_position: &IndexPosition) -> String {
+        match index_position {
+            IndexPosition::Before => {
+                let mut filename_input = String::new();
+                filename_input.push_str("1 "); 
+                if !app.get_filename_input().is_empty() {
+                   filename_input.push_str(app.get_filename_input());
+                } else {
+                    filename_input.push_str("Custom Name");
+                }
+
+                self.convert_text_by_checkbox_states(app, filename_input)
+            },
+            IndexPosition::After => {
+                let mut filename_input = String::new();
+                if !app.get_filename_input().is_empty() {
+                   filename_input.push_str(app.get_filename_input());
+                } else {
+                    filename_input.push_str("Custom Name");
+                }
+                filename_input.push_str(" 1"); 
+                self.convert_text_by_checkbox_states(app, filename_input)
+            } 
+        }
+    }
+
+    fn convert_text_by_checkbox_states(&self, app: &App, text: String) -> String {
+       let mut converted = text; 
+       if app.get_checkbox_states().remove_uppercase {
+           converted = converted.to_lowercase();
+       }
+       if app.get_checkbox_states().replace_spaces_with_underscores {
+           converted = converted.replace(" ", "_");
+       }
+       converted
+    }
+
     fn order_of_file_name_components<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let mut column = Column::new();
         let mut row = Row::new();
         let order_of_filename_components = app.get_order_of_filename_components();
         if !order_of_filename_components.is_empty() {
-            column = column.push(text("Order of filename components"));
+            column = column.push(text("Order of filename components example"));
         }
-        for component in order_of_filename_components {
-            row = row.push(text(component));
+        for (i, component) in order_of_filename_components.iter().enumerate() {
+            let example_component: String = match component.as_str() {
+               filename_components::DATE => {
+                    let current_date: DateTime<Local> = Local::now();
+                    let formatted = current_date.format("%Y%m%d");
+                    formatted.to_string()
+               },
+               filename_components::ORIGINAL_FILENAME => {
+                   let original_filename = String::from("Original Filename");
+                   self.convert_text_by_checkbox_states(app, original_filename)
+               }
+               filename_components::DIRECTORY_NAME => {
+                    let mut directory_name = String::new();
+                    let new_directory_name = app.get_new_directory_input();
+                    if !app.get_new_directory_input().is_empty() {
+                        directory_name.push_str(new_directory_name);
+                    } else {
+                        directory_name.push_str("Directory Name");
+                    }
+                    self.convert_text_by_checkbox_states(app, directory_name)
+               },
+               filename_components::CUSTOM_FILE_NAME => {
+                   let mut custom_name = String::from("Custom Name");
+                   let filename_input = app.get_filename_input();
+                   if !filename_input.is_empty() {
+                        custom_name = String::from(filename_input);
+                   }
+                   let mut custom_file_name = self.convert_text_by_checkbox_states(app, custom_name);
+                   if let Some(position) = app.get_index_position() {
+                        custom_file_name = self.get_custom_name_example(app, &position)
+                   }
+                   custom_file_name
+               }
+               _ => String::new() 
+            };
+            if i > 0 {
+                row = row.push(button("swap").on_press(Message::SwapFileNameComponents(i)));
+            }
+            row = row.push(text(example_component));
         }
-        row = row.spacing(5).padding(5).align_y(Vertical::Center);
+        row = row.push(".jpg");
+        row = row.spacing(2).padding(5).align_y(Vertical::Center);
         column = column.push(row);
         return column;
     }

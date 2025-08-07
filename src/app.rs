@@ -96,6 +96,7 @@ pub enum Message {
     ExtractContentFromDirectory(PathBuf),
     ExtractAllContentFromDirectory(PathBuf),
     InsertFilesToSelectedDirectory,
+    SwapFileNameComponents(usize),
     FilenameInput(String),
     IndexPositionSelected(IndexPosition),
     Back,
@@ -401,6 +402,10 @@ impl App {
                 } 
                 Task::none()
             }
+            Message::SwapFileNameComponents(index) => {
+                self.swap_filename_components(index);
+                Task::none()
+            }
             Message::FilenameInput(input) => {
                 self.filename_input = input;
                 Task::none()
@@ -590,7 +595,7 @@ impl App {
     }
 
     fn init_app_data(&mut self) {
-        self.order_of_filename_components = vec![String::from("Original filename")];
+        self.order_of_filename_components = vec![String::from(filename_components::ORIGINAL_FILENAME)];
         self.directories_selected.clear();
         self.directory_selected = None;
         self.date_type_selected = None;
@@ -1259,6 +1264,14 @@ impl App {
             }
         }
         Err(std::io::Error::new(ErrorKind::NotFound, "Could not find selected directory."))
+    }
+
+    fn swap_filename_components(&mut self, index: usize) {
+        if self.order_of_filename_components.len() >= index { 
+            let temp = self.order_of_filename_components[index-1].clone();
+            self.order_of_filename_components[index-1] = self.order_of_filename_components[index].clone(); 
+            self.order_of_filename_components[index] = temp;
+        }
     }
 }
 
