@@ -272,6 +272,8 @@ impl App {
                             path_to_directory,
                             self.checkbox_states.clone(),
                             self.date_type_selected,
+                            &self.order_of_filename_components,
+                            &self.filename_input
                         ) {
                             Ok(_) => {
                                 self.new_directory_name.clear();
@@ -1238,7 +1240,12 @@ impl App {
             if let Some(selected_dir) =
                 self.root.get_mut_directory_by_path(selected_dir_path)
             {
-                let (checkbox_states, date_type) = save_directory::read_directory_rules_from_file(
+                let (
+                    checkbox_states,
+                    date_type,
+                    order_of_filename_components,
+                    custom_filename
+                ) = save_directory::read_directory_rules_from_file(
                     &self.home_directory_path,
                     selected_dir_path,
                 )?; 
@@ -1252,8 +1259,8 @@ impl App {
                             self.files_selected.clone(),
                             checkbox_states,
                             directory_name,
-                            &self.filename_input,
-                            &self.order_of_filename_components,
+                            &custom_filename,
+                            &order_of_filename_components,
                             date_type,
                             self.index_position,
                         )

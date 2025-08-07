@@ -1,11 +1,12 @@
 use crate::{layouts::CheckboxStates, metadata::DateType};
 use crate::app_util;
+use crate::app::filename_components;
 use std::{
     io::{ErrorKind, Read, Write},
     path::PathBuf,
 };
 
-const CSV_FILE_HEADER: &str = "path, organize_by_file_type, organize_by_date, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, insert_directory_name_to_file_name, insert_date_to_file_name, remove_original_file_name, add_custom_name, date_type\n";
+const CSV_FILE_HEADER: &str = "path, organize_by_file_type, organize_by_date, remove_uppercase, replace_spaces_with_underscores, use_only_ascii, insert_directory_name_to_file_name, insert_date_to_file_name, remove_original_file_name, add_custom_name, date_type, component_order\n";
 
 pub const SAVE_FILE_NAME: &str = ".save_file.csv";
 
@@ -20,6 +21,8 @@ pub fn write_created_directory_to_save_file(
     directory_path: PathBuf,
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
+    order_of_filename_components: &Vec<String>,
+    custom_filename: &str
 ) -> std::io::Result<()> {
     match std::fs::File::options()
         .append(true)
@@ -34,6 +37,8 @@ pub fn write_created_directory_to_save_file(
                 dir_path,
                 checkbox_states,
                 date_type,
+                order_of_filename_components,
+                custom_filename
             );
             file.write(new_directory_data.as_bytes())?;
         }
@@ -47,6 +52,8 @@ pub fn write_created_directory_to_save_file(
                     dir_path,
                     checkbox_states,
                     date_type,
+                    order_of_filename_components,
+                    custom_filename
                 );
                 save_file.write(file_content.as_bytes())?;
         }
@@ -90,7 +97,7 @@ pub fn remove_directory_from_file(
 pub fn read_directory_rules_from_file(
     home_directory_path: &PathBuf,
     directory_path: &PathBuf,
-) -> std::io::Result<(CheckboxStates, Option<DateType>)> {
+) -> std::io::Result<(CheckboxStates, Option<DateType>, Vec<String>, String)> {
     match std::fs::File::options()
         .read(true)
         .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
@@ -101,7 +108,9 @@ pub fn read_directory_rules_from_file(
             if let Some(list_of_rules) = parse_file_result(buffer.as_str(), directory_path) {
                 let checkbox_states = parse_rules(&list_of_rules);
                 let date_type = parse_date_type(&list_of_rules);
-                return Ok((checkbox_states, date_type));
+                let order_of_filename_components = parse_filename_components(&list_of_rules);
+                let custom_filename = parse_custom_filename(&list_of_rules);
+                return Ok((checkbox_states, date_type, order_of_filename_components, custom_filename));
             }
             Err(std::io::Error::new(
                 ErrorKind::NotFound,
@@ -158,15 +167,42 @@ fn parse_rules(list_of_rules: &Vec<&str>) -> CheckboxStates {
 }
 
 fn parse_date_type(list_of_rules: &Vec<&str>) -> Option<DateType> {
-    if let Some(date_type) = list_of_rules.last() {
-        return match *date_type {
-            "Created" => Some(DateType::Created),
-            "Accessed" => Some(DateType::Accessed),
-            "Modified" => Some(DateType::Modified),
-            _ => return None,
-        };
+    if list_of_rules.len() < 11 {
+        return None;
     }
-    None
+    let date_type = list_of_rules[10];
+    return match date_type {
+        "Created" => Some(DateType::Created),
+        "Accessed" => Some(DateType::Accessed),
+        "Modified" => Some(DateType::Modified),
+        _ => return None,
+    };
+}
+
+
+fn parse_filename_components(list_of_rules: &Vec<&str>) -> Vec<String> {
+    let mut order_of_filename_components = Vec::new();
+    for rule in list_of_rules {
+        let component = match *rule {
+            "directory_name" => filename_components::DIRECTORY_NAME,
+            "date" => filename_components::DATE,
+            "custom_file_name" => filename_components::CUSTOM_FILE_NAME,
+            "original_filename" => filename_components::ORIGINAL_FILENAME,
+            _ => ""
+        };
+        if !component.is_empty() {
+            order_of_filename_components.push(String::from(component));
+        }
+    }
+    order_of_filename_components
+}
+
+fn parse_custom_filename(list_of_rules: &Vec<&str>) -> String {
+    let mut custom_filename = String::new();
+    if let Some(last) = list_of_rules.last() {
+        custom_filename.push_str(last); 
+    }
+    custom_filename
 }
 
 fn parse_file_result<'a>(buffer: &'a str, path: &'a PathBuf) -> Option<Vec<&'a str>> {
@@ -198,6 +234,8 @@ fn write_directory_data_to_string(
     dir_path: &str,
     checkbox_states: CheckboxStates,
     date_type: Option<DateType>,
+    order_of_filename_components: &Vec<String>,
+    custom_filename: &str
 ) {
     file_content.push_str(dir_path);
     file_content.push_str(",");
@@ -213,12 +251,33 @@ fn write_directory_data_to_string(
 
     if let Some(date_type) = date_type {
         match date_type {
-            DateType::Created => file_content.push_str("Created\n"),
-            DateType::Accessed => file_content.push_str("Accessed\n"),
-            DateType::Modified => file_content.push_str("Modified\n"),
+            DateType::Created => file_content.push_str("Created"),
+            DateType::Accessed => file_content.push_str("Accessed"),
+            DateType::Modified => file_content.push_str("Modified"),
         }
     } else {
-        file_content.push_str("None\n");
+        file_content.push_str("None");
+    }
+    write_order_of_filename_components(file_content, order_of_filename_components);
+    if order_of_filename_components.contains(&String::from(filename_components::CUSTOM_FILE_NAME)) {
+        file_content.push_str(",");
+        file_content.push_str(custom_filename);
+    }
+    file_content.push_str("\n");
+}
+
+fn write_order_of_filename_components(
+    file_content: &mut String,
+    order_of_filename_components: &Vec<String>
+) {
+    for component in order_of_filename_components {
+        match component.as_str() {
+            filename_components::DATE => file_content.push_str(",date"),
+            filename_components::ORIGINAL_FILENAME => file_content.push_str(",original_filename"),
+            filename_components::DIRECTORY_NAME => file_content.push_str(",directory_name"), 
+            filename_components::CUSTOM_FILE_NAME => file_content.push_str(",custom_file_name"),
+            _ => {}
+        }
     }
 }
 
