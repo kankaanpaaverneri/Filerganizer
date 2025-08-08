@@ -7,6 +7,7 @@ mod layouts;
 mod metadata;
 mod organize_files;
 mod save_directory;
+mod subscription;
 
 use app::App;
 use iced;
@@ -14,6 +15,7 @@ use iced::Theme;
 
 fn main() -> iced::Result {
     iced::application("Filerganizer", App::update, App::view)
+        .subscription(subscription::subscription)
         .theme(theme)
         .run()
 }

@@ -1,13 +1,13 @@
 use std::{
     collections::BTreeSet,
     ffi::{OsStr, OsString},
-    path::{Iter, PathBuf},
+    path::{Iter, PathBuf}
 };
 
 use iced::{
     alignment::{Horizontal, Vertical},
     widget::{
-        button, checkbox, column, container, radio, row, scrollable, text, text_input, Column,
+        button, checkbox, column, container, radio, row, scrollable, text, text_input,  Column,
         Container, Row,
     },
     Background, Color,
@@ -597,6 +597,7 @@ impl Layout {
     fn insert_search_bar<'a>(&self, app: &'a App, path: &str) -> Row<'a, Message> {
         row![
             text_input(path, app.get_path_input())
+                .id(app.get_path_input_id())
                 .on_input(Message::TextInput)
                 .on_submit(Message::SearchPath),
             button("Search")

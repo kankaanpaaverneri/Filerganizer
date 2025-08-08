@@ -105,6 +105,24 @@ pub fn get_date_type(date_type: Option<DateType>) -> std::io::Result<DateType> {
     Err(std::io::Error::new(ErrorKind::NotFound, "Date type not specified."))
 }
 
+
+pub fn is_substring(needle: &str, haystack: &str) -> usize {
+    let mut score = 0;
+    let mut iterator = needle.chars();
+    for hay in haystack.chars() {
+       if let Some(next) = iterator.next() {
+            if hay == next {
+               score += 1; 
+            } else {
+                return score;
+            }
+       } else {
+            break;
+       }
+    }
+    score
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

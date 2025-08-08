@@ -20,6 +20,7 @@ pub struct App {
     home_directory_path: PathBuf,
     path: PathBuf,
     path_input: String,
+    path_input_id: iced::widget::text_input::Id,
     error: String,
     root: Directory,
     external_storage: BTreeSet<OsString>,
@@ -51,6 +52,7 @@ impl Default for App {
             home_directory_path: PathBuf::default(),
             path: PathBuf::new(),
             path_input: String::new(),
+            path_input_id: iced::widget::text_input::Id::unique(), 
             error: String::new(),
             root: Directory::new(None),
             external_storage: BTreeSet::new(),
@@ -101,6 +103,7 @@ pub enum Message {
     IndexPositionSelected(IndexPosition),
     Back,
     Commit,
+    TabKeyPressed,
     Exit,
 }
 
@@ -426,6 +429,19 @@ impl App {
                 self.files_organized.clear();
                 return Task::none();
             }
+            Message::TabKeyPressed => {
+                match self.search_directories_from_path() {
+                    Ok(new_path) => {
+                        self.path_input = new_path;
+                        if let Err(error) = self.search_path() {
+                            self.error = error.to_string();
+                        }
+                    },
+                    Err(error) => self.error = error.to_string()
+                }
+                self.update_path_input();
+                iced::widget::text_input::move_cursor_to_end::<Message>(self.path_input_id.clone())
+            }
             Message::Back => {
                 self.init_app_data();
                 if let Err(error) = self.switch_layout(&Layout::DirectorySelectionLayout) {
@@ -446,6 +462,10 @@ impl App {
     }
     pub fn get_path_input(&self) -> &str {
         self.path_input.as_str()
+    }
+
+    pub fn get_path_input_id(&self) -> iced::widget::text_input::Id {
+        self.path_input_id.clone()
     }
 
     pub fn get_error(&self) -> &str {
@@ -826,6 +846,12 @@ impl App {
     fn update_path_input(&mut self) {
         if let Some(path_str) = self.path.to_str() {
             self.path_input = String::from(path_str);
+            if let Some(popped) = self.path_input.pop() {
+                if popped != '/' {
+                    self.path_input.push(popped);
+                    self.path_input.push('/');
+                }
+            }
         }
     }
 
@@ -1279,6 +1305,83 @@ impl App {
             self.order_of_filename_components[index-1] = self.order_of_filename_components[index].clone(); 
             self.order_of_filename_components[index] = temp;
         }
+    }
+
+    fn follow_directory_path(&self, current_path: &PathBuf) -> Option<&Directory> {
+        let mut path_stack = PathBuf::new();
+        let mut dir = None;
+        for (i, component) in current_path.components().enumerate() {
+            path_stack.push(component);
+            if i == 0 {
+                continue;
+            }
+            let directory = self.root.get_directory_by_path(&path_stack);
+            if directory.get_name() != Some(OsString::from("/")) {
+                dir = Some(directory); 
+            } else {
+                break;
+            }
+        }
+        dir
+    }
+
+    fn search_directories_from_path(&mut self) -> std::io::Result<String> {
+        let current_path = PathBuf::from(&self.path_input);
+        if let Some(last_component) = current_path.iter().last() {
+            if let Some(directory) = self.follow_directory_path(&current_path) {
+                let mut dir_with_greatest_score = None;
+                let mut path_is_equal = false;
+                if directory.get_name() == Some(OsString::from(last_component)) {
+                   let last_component = app_util::convert_os_str_to_str(last_component)?;
+                   dir_with_greatest_score = Some(last_component); 
+                   path_is_equal = true;
+                } else if let Some(sub_directories) = directory.get_directories() {
+                    let mut score = 0;
+                    for dir_name in sub_directories.keys() {
+                        if let Some((last_component, dir_name)) = self.get_path_components_to_str(last_component, dir_name) {
+                            let count = app_util::is_substring(last_component, dir_name); 
+                            if count > score {
+                                score = count;
+                                dir_with_greatest_score = Some(dir_name);
+                            } 
+                        }
+                    }
+                }
+                if let Some(dir) = dir_with_greatest_score {
+                   let mut result_path = self.path_input.clone();
+                   if path_is_equal {
+                        return Ok(result_path);
+                   }
+
+                   while let Some(ch) = result_path.pop() {
+                        if ch == '/' {
+                            break;
+                        }
+                   }
+                   result_path.push_str("/");
+                   result_path.push_str(dir);
+                   return Ok(result_path);
+                }
+            } 
+            if current_path == PathBuf::from("/") {
+                return Ok(String::from("/"))
+            }
+        }
+        Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No match found."))
+    }
+
+
+    fn get_path_components_to_str<'a>(
+        &'a self,
+        last_component: &'a OsStr,
+        dir_name: &'a OsStr
+    ) -> Option<(&'a str, &'a str)> {
+       if let Some(dir_name) = dir_name.to_str() {
+            if let Some(last_component) = last_component.to_str() {
+                return Some((last_component, dir_name))
+            }
+       }
+       None
     }
 }
 
