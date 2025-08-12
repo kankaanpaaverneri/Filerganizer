@@ -1333,11 +1333,19 @@ impl App {
                     contains_character = true;
                 } 
             }
+            for ch in 'a'..'z' {
+                if i == 0 && character == ch {
+                    contains_character = true;
+                } 
+            }
             if i == 1 && character == ':' {
                contains_colon = true; 
             }
         }
         if contains_character && contains_colon && path.len() == 2 || path.len() == 3 {
+            return true;
+        }
+        if contains_character && path.len() == 1 {
             return true;
         }
         false 
@@ -1350,6 +1358,10 @@ impl App {
             if self.path_has_only_prefix(current_path) {
                 let mut prefix_path = String::from(current_path);
                 if prefix_path.len() == 2 {
+                    prefix_path.push('\\');
+                }
+                if prefix_path.len() == 1 {
+                    prefix_path.push(':');
                     prefix_path.push('\\');
                 }
                 return Ok(prefix_path);
