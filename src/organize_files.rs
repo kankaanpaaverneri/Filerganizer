@@ -598,7 +598,7 @@ pub fn rename_file_name(
 }
 
 pub fn get_file_type_from_file_name(file_name: &str) -> Option<String> {
-    if !file_name.contains(".") {
+    if !file_name.contains(".") || file_name.starts_with(".") || file_name.ends_with(".") {
         return None;
     }
     let splitted: Vec<_> = file_name.split(".").collect();
@@ -663,7 +663,7 @@ pub fn get_file_types(files_selected: &BTreeMap<OsString, File>) -> BTreeMap<OsS
         if let Some(file_name) = key.to_str() {
             let file_name = String::from(file_name);
             let splitted: Vec<_> = file_name.split(".").collect();
-            if !file_name.contains(".") {
+            if !file_name.contains(".") || file_name.starts_with(".") || file_name.ends_with(".") {
                 file_types.insert(OsString::from("other"), Directory::new(None));
                 continue;
             }

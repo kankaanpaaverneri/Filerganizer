@@ -846,12 +846,6 @@ impl App {
     fn update_path_input(&mut self) {
         if let Some(path_str) = self.path.to_str() {
             self.path_input = String::from(path_str);
-            if let Some(popped) = self.path_input.pop() {
-                if popped != '/' {
-                    self.path_input.push(popped);
-                    self.path_input.push('/');
-                }
-            }
         }
     }
 
@@ -1315,6 +1309,11 @@ impl App {
             if i == 0 {
                 continue;
             }
+            if std::env::consts::OS == "windows" {
+                if i == 1 {
+                    continue;
+                }
+            }
             let directory = self.root.get_directory_by_path(&path_stack);
             if directory.get_name() != Some(OsString::from("/")) {
                 dir = Some(directory); 
@@ -1325,12 +1324,42 @@ impl App {
         dir
     }
 
+    fn path_has_only_prefix(&self, path: &str) -> bool {
+        let mut contains_character = false;
+        let mut contains_colon = false; 
+        for (i, character) in path.chars().enumerate() {
+            for ch in 'A'..'Z' {
+                if i == 0 && character == ch {
+                    contains_character = true;
+                } 
+            }
+            if i == 1 && character == ':' {
+               contains_colon = true; 
+            }
+        }
+        if contains_character && contains_colon && path.len() == 2 || path.len() == 3 {
+            return true;
+        }
+        false 
+    }
+
     fn search_directories_from_path(&mut self) -> std::io::Result<String> {
         let current_path = PathBuf::from(&self.path_input);
+        if std::env::consts::OS == "windows" {
+            let current_path = app_util::convert_path_to_str(&current_path)?;
+            if self.path_has_only_prefix(current_path) {
+                let mut prefix_path = String::from(current_path);
+                if prefix_path.len() == 2 {
+                    prefix_path.push('\\');
+                }
+                return Ok(prefix_path);
+            }
+        }
         if let Some(last_component) = current_path.iter().last() {
             if let Some(directory) = self.follow_directory_path(&current_path) {
                 let mut dir_with_greatest_score = None;
                 let mut path_is_equal = false;
+
                 if directory.get_name() == Some(OsString::from(last_component)) {
                    let last_component = app_util::convert_os_str_to_str(last_component)?;
                    dir_with_greatest_score = Some(last_component); 
@@ -1348,19 +1377,7 @@ impl App {
                     }
                 }
                 if let Some(dir) = dir_with_greatest_score {
-                   let mut result_path = self.path_input.clone();
-                   if path_is_equal {
-                        return Ok(result_path);
-                   }
-
-                   while let Some(ch) = result_path.pop() {
-                        if ch == '/' {
-                            break;
-                        }
-                   }
-                   result_path.push_str("/");
-                   result_path.push_str(dir);
-                   return Ok(result_path);
+                    return self.add_new_dir_to_path_input(dir, path_is_equal);
                 }
             } 
             if current_path == PathBuf::from("/") {
@@ -1368,6 +1385,36 @@ impl App {
             }
         }
         Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No match found."))
+    }
+
+    fn add_new_dir_to_path_input(&self, dir: &str, path_is_equal: bool) -> std::io::Result<String> {
+       let mut result_path = self.path_input.clone();
+       if path_is_equal {
+           match std::env::consts::OS {
+                "windows" => result_path.push_str("\\"),
+                "linux" | "macos" => result_path.push_str("/"),
+                _ => {}
+           }
+           return Ok(result_path);
+       }
+
+       while let Some(ch) = result_path.pop() {
+            if ch == '/' || ch == '\\' {
+                break;
+            }
+       }
+       match std::env::consts::OS {
+            "windows" => result_path.push_str("\\"),
+            "linux" | "macos" => result_path.push_str("/"),
+            _ => {}
+       }
+       result_path.push_str(dir);
+       match std::env::consts::OS {
+            "windows" => result_path.push_str("\\"),
+            "linux" | "macos" => result_path.push_str("/"),
+            _ => {}
+       }
+       return Ok(result_path);
     }
 
 
@@ -1465,7 +1512,6 @@ mod tests {
         assert_eq!(app.path, PathBuf::from("C:/"));
         app.update_path_prefix(&OsString::from("F:/"));
         assert_eq!(app.path, PathBuf::from("C:/"));
-        //fn update_path_prefix(&mut self, key: &OsStr) {
     }
 
     #[test]
