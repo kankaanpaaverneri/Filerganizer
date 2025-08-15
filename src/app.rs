@@ -29,6 +29,7 @@ pub struct App {
 
     directories_selected: Vec<PathBuf>,
     directory_selected: Option<PathBuf>,
+    multiple_selection: String,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
@@ -61,6 +62,7 @@ impl Default for App {
 
             directories_selected: Vec::new(),
             directory_selected: None,
+            multiple_selection: String::new(),
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
@@ -78,7 +80,7 @@ pub enum Message {
     SwitchLayout(Layout),
     SwitchDirectoryView(DirectoryView),
     TextInput(String),
-    SearchPath,
+    SearchPath(bool),
     MoveDownDirectory(OsString),
     MoveUpDirectory,
     MoveInExternalDirectory(OsString),
@@ -88,6 +90,7 @@ pub enum Message {
     ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
     SelectFile(PathBuf),
+    SelectMultipleFiles(PathBuf),
     SelectAllFiles,
     PutAllFilesBack,
     InputNewDirectoryName(String),
@@ -127,9 +130,12 @@ impl App {
                 self.path_input = text_input;
                 Task::none()
             }
-            Message::SearchPath => {
+            Message::SearchPath(is_submit) => {
                 if let Err(error) = self.search_path() {
                     self.error = error.to_string();
+                }
+                if is_submit {
+                    self.layout = Layout::DirectoryOrganizingLayout;
                 }
                 Task::none()
             }
@@ -223,6 +229,18 @@ impl App {
                     }
                 }
                 return Task::none();
+            }
+            Message::SelectMultipleFiles(file_path) => {
+                match self.select_multiple_files(&file_path) {
+                    Ok(files) => {
+                        for (key, value) in files {
+                            self.files_selected.insert(key, value);
+                            self.multiple_selection = String::new();
+                        }
+                    }
+                    Err(error) => self.error = error.to_string(),
+                }
+                Task::none()
             }
             Message::SelectAllFiles => {
                 if let Err(error) = self.is_duplicate_files_selected() {
@@ -1326,6 +1344,50 @@ impl App {
         }
     }
 
+    fn select_multiple_files(
+        &mut self,
+        file_path: &PathBuf,
+    ) -> std::io::Result<BTreeMap<OsString, File>> {
+        let path = app_util::convert_path_to_str(file_path)?;
+        if self.multiple_selection.is_empty() {
+            self.multiple_selection = String::from(path);
+            return Ok(BTreeMap::new());
+        } else {
+            let mut path = PathBuf::from(file_path);
+            path.pop();
+            let mut files_selected = BTreeMap::new();
+            let mut left_over_files = BTreeMap::new();
+            if let Some(dir) = self.root.get_mut_directory_by_path(&path) {
+                if let Some(files) = dir.get_mut_files().take() {
+                    let mut file_path_found = false;
+                    for (key, value) in files {
+                        if !file_path_found {
+                            files_selected.insert(OsString::from(&key), value);
+                        } else {
+                            left_over_files.insert(OsString::from(&key), value);
+                        }
+                        if file_path.ends_with(key) {
+                            file_path_found = true;
+                        }
+                    }
+                    if file_path_found {
+                        for (key, value) in left_over_files {
+                            dir.insert_file(key, value);
+                        }
+                        return Ok(files_selected);
+                    }
+                    for (key, value) in files_selected {
+                        dir.insert_file(key, value);
+                    }
+                }
+            }
+        }
+        Err(std::io::Error::new(
+            ErrorKind::InvalidInput,
+            "Invalid selection",
+        ))
+    }
+
     fn insert_files_to_selected_dir(&mut self) -> std::io::Result<()> {
         if let Some(selected_dir_path) = &self.directory_selected {
             if let Some(selected_dir) = self.root.get_mut_directory_by_path(selected_dir_path) {
@@ -1473,14 +1535,21 @@ impl App {
         ))
     }
 
+    fn insert_slash(&self, path: &mut String) {
+        match std::env::consts::OS {
+            "windows" => path.push_str("\\"),
+            "linux" | "macos" => path.push_str("/"),
+            _ => {}
+        }
+    }
+
     fn add_new_dir_to_path_input(&self, dir: &str, path_is_equal: bool) -> std::io::Result<String> {
         let mut result_path = self.path_input.clone();
         if path_is_equal {
-            match std::env::consts::OS {
-                "windows" => result_path.push_str("\\"),
-                "linux" | "macos" => result_path.push_str("/"),
-                _ => {}
+            if result_path.ends_with("/") || result_path.ends_with("\\") {
+                return Ok(result_path);
             }
+            self.insert_slash(&mut result_path);
             return Ok(result_path);
         }
 
@@ -1489,17 +1558,10 @@ impl App {
                 break;
             }
         }
-        match std::env::consts::OS {
-            "windows" => result_path.push_str("\\"),
-            "linux" | "macos" => result_path.push_str("/"),
-            _ => {}
-        }
+
+        self.insert_slash(&mut result_path);
         result_path.push_str(dir);
-        match std::env::consts::OS {
-            "windows" => result_path.push_str("\\"),
-            "linux" | "macos" => result_path.push_str("/"),
-            _ => {}
-        }
+        self.insert_slash(&mut result_path);
         return Ok(result_path);
     }
 

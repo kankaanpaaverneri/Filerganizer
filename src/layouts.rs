@@ -7,8 +7,8 @@ use std::{
 use iced::{
     alignment::{Horizontal, Vertical},
     widget::{
-        button, checkbox, column, container, radio, row, scrollable, text, text_input, Column,
-        Container, Row,
+        button, checkbox, column, container, mouse_area, radio, row, scrollable, text, text_input,
+        Column, Container, Row,
     },
     Background, Color,
     Length::{Fill, FillPortion},
@@ -166,6 +166,10 @@ impl Layout {
                         .push(button("Select all files").on_press(Message::SelectAllFiles));
                 }
             }
+            let mut directory_content_fill_portion = FillPortion(1);
+            if app.get_files_selected().is_empty() {
+                directory_content_fill_portion = Fill;
+            }
 
             container(column![
                 row![
@@ -183,7 +187,8 @@ impl Layout {
                 column![text(app.get_error())],
                 select_all_files_button,
                 row![
-                    scrollable(self.display_selected_path_content(app)).width(FillPortion(1)),
+                    scrollable(self.display_selected_path_content(app))
+                        .width(directory_content_fill_portion),
                     scrollable(
                         column![
                             self.selected_directory_option(app),
@@ -388,9 +393,9 @@ impl Layout {
             if i > 0 {
                 row = row.push(button("swap").on_press(Message::SwapFileNameComponents(i)));
             }
-            row = row.push(text(example_component));
+            row = row.push(text(example_component).size(12));
         }
-        row = row.push(".jpg");
+        row = row.push(text(".filetype").size(12));
         row = row.spacing(2).padding(5).align_y(Vertical::Center);
         column = column.push(row);
         return column;
@@ -447,6 +452,9 @@ impl Layout {
                     button("Remove all files from selected").on_press(Message::PutAllFilesBack),
                 );
                 column = column.push(text("Selected files").size(15));
+                let files_selected_count = app.get_files_selected().len();
+                let formatted_count = format!("{}", files_selected_count);
+                column = column.push(text(formatted_count));
             }
             if let Some(file_name) = key.to_str() {
                 path_stack.push(key);
@@ -548,15 +556,22 @@ impl Layout {
 
                     if files_selectable {
                         column = column.push(
-                            button(file_name)
-                                .style(file_button_style)
-                                .on_press(Message::SelectFile(PathBuf::from(&path))),
+                            mouse_area(
+                                button(file_name)
+                                    .style(file_button_style)
+                                    .width(Fill)
+                                    .on_press(Message::SelectFile(PathBuf::from(&path))),
+                            )
+                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path))),
                         );
                     } else {
                         column = column.push(
-                            button(file_name)
-                                .style(inner_file_button_style)
-                                .on_press(Message::PopFileFromDirectory(PathBuf::from(&path))),
+                            mouse_area(
+                                button(file_name)
+                                    .width(Fill)
+                                    .style(inner_file_button_style)
+                                    .on_press(Message::PopFileFromDirectory(PathBuf::from(&path))),
+                            ), // Do this later .on_right_press(Message::SelectMultipleFiles)
                         );
                     }
 
@@ -600,10 +615,10 @@ impl Layout {
             text_input(path, app.get_path_input())
                 .id(app.get_path_input_id())
                 .on_input(Message::TextInput)
-                .on_submit(Message::SearchPath),
+                .on_submit(Message::SearchPath(true)),
             button("Search")
                 .style(directory_button_style)
-                .on_press(Message::SearchPath)
+                .on_press(Message::SearchPath(false))
         ]
     }
 
