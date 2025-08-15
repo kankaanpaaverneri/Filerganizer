@@ -1,13 +1,13 @@
 use std::{
     collections::BTreeSet,
     ffi::{OsStr, OsString},
-    path::{Iter, PathBuf}
+    path::{Iter, PathBuf},
 };
 
 use iced::{
     alignment::{Horizontal, Vertical},
     widget::{
-        button, checkbox, column, container, radio, row, scrollable, text, text_input,  Column,
+        button, checkbox, column, container, radio, row, scrollable, text, text_input, Column,
         Container, Row,
     },
     Background, Color,
@@ -15,10 +15,10 @@ use iced::{
     Theme,
 };
 
-use chrono::{Local, DateTime};
+use chrono::{DateTime, Local};
 
 use crate::{
-    app::{App, Message, filename_components},
+    app::{filename_components, App, Message},
     directory::Directory,
     metadata::{DateType, Metadata},
 };
@@ -275,9 +275,7 @@ impl Layout {
                 .align_y(Vertical::Center)
                 .spacing(5)
             ],
-            column![
-                self.order_of_file_name_components(app)
-            ]
+            column![self.order_of_file_name_components(app)]
         ]
     }
 
@@ -311,37 +309,37 @@ impl Layout {
         match index_position {
             IndexPosition::Before => {
                 let mut filename_input = String::new();
-                filename_input.push_str("1 "); 
+                filename_input.push_str("1 ");
                 if !app.get_filename_input().is_empty() {
-                   filename_input.push_str(app.get_filename_input());
+                    filename_input.push_str(app.get_filename_input());
                 } else {
                     filename_input.push_str("Custom Name");
                 }
 
                 self.convert_text_by_checkbox_states(app, filename_input)
-            },
+            }
             IndexPosition::After => {
                 let mut filename_input = String::new();
                 if !app.get_filename_input().is_empty() {
-                   filename_input.push_str(app.get_filename_input());
+                    filename_input.push_str(app.get_filename_input());
                 } else {
                     filename_input.push_str("Custom Name");
                 }
-                filename_input.push_str(" 1"); 
+                filename_input.push_str(" 1");
                 self.convert_text_by_checkbox_states(app, filename_input)
-            } 
+            }
         }
     }
 
     fn convert_text_by_checkbox_states(&self, app: &App, text: String) -> String {
-       let mut converted = text; 
-       if app.get_checkbox_states().remove_uppercase {
-           converted = converted.to_lowercase();
-       }
-       if app.get_checkbox_states().replace_spaces_with_underscores {
-           converted = converted.replace(" ", "_");
-       }
-       converted
+        let mut converted = text;
+        if app.get_checkbox_states().remove_uppercase {
+            converted = converted.to_lowercase();
+        }
+        if app.get_checkbox_states().replace_spaces_with_underscores {
+            converted = converted.replace(" ", "_");
+        }
+        converted
     }
 
     fn order_of_file_name_components<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
@@ -353,16 +351,16 @@ impl Layout {
         }
         for (i, component) in order_of_filename_components.iter().enumerate() {
             let example_component: String = match component.as_str() {
-               filename_components::DATE => {
+                filename_components::DATE => {
                     let current_date: DateTime<Local> = Local::now();
                     let formatted = current_date.format("%Y%m%d");
                     formatted.to_string()
-               },
-               filename_components::ORIGINAL_FILENAME => {
-                   let original_filename = String::from("Original Filename");
-                   self.convert_text_by_checkbox_states(app, original_filename)
-               }
-               filename_components::DIRECTORY_NAME => {
+                }
+                filename_components::ORIGINAL_FILENAME => {
+                    let original_filename = String::from("Original Filename");
+                    self.convert_text_by_checkbox_states(app, original_filename)
+                }
+                filename_components::DIRECTORY_NAME => {
                     let mut directory_name = String::new();
                     let new_directory_name = app.get_new_directory_input();
                     if !app.get_new_directory_input().is_empty() {
@@ -371,20 +369,21 @@ impl Layout {
                         directory_name.push_str("Directory Name");
                     }
                     self.convert_text_by_checkbox_states(app, directory_name)
-               },
-               filename_components::CUSTOM_FILE_NAME => {
-                   let mut custom_name = String::from("Custom Name");
-                   let filename_input = app.get_filename_input();
-                   if !filename_input.is_empty() {
+                }
+                filename_components::CUSTOM_FILE_NAME => {
+                    let mut custom_name = String::from("Custom Name");
+                    let filename_input = app.get_filename_input();
+                    if !filename_input.is_empty() {
                         custom_name = String::from(filename_input);
-                   }
-                   let mut custom_file_name = self.convert_text_by_checkbox_states(app, custom_name);
-                   if let Some(position) = app.get_index_position() {
+                    }
+                    let mut custom_file_name =
+                        self.convert_text_by_checkbox_states(app, custom_name);
+                    if let Some(position) = app.get_index_position() {
                         custom_file_name = self.get_custom_name_example(app, &position)
-                   }
-                   custom_file_name
-               }
-               _ => String::new() 
+                    }
+                    custom_file_name
+                }
+                _ => String::new(),
             };
             if i > 0 {
                 row = row.push(button("swap").on_press(Message::SwapFileNameComponents(i)));
@@ -516,7 +515,6 @@ impl Layout {
 
                     if is_selected {
                         let mut new_column = Column::new();
-                        path.push(key);
                         new_column = self.display_directories_as_dropdown(
                             subdir,
                             path,
@@ -524,7 +522,6 @@ impl Layout {
                             call_count + 1,
                             new_column,
                         );
-                        path.pop();
                         new_column = new_column.padding(20).spacing(10);
                         new_column = self.append_files_to_column(subdir, path, new_column, false);
                         column = column.push(new_column);
@@ -542,21 +539,25 @@ impl Layout {
         root: &'a Directory,
         path: &mut PathBuf,
         mut column: Column<'a, Message>,
-        files_pressable: bool,
+        files_selectable: bool,
     ) -> Column<'a, Message> {
         if let Some(files) = root.get_files() {
             for key in files.keys() {
                 if let Some(file_name) = key.to_str() {
                     path.push(key);
 
-                    if files_pressable {
+                    if files_selectable {
                         column = column.push(
                             button(file_name)
                                 .style(file_button_style)
                                 .on_press(Message::SelectFile(PathBuf::from(&path))),
                         );
                     } else {
-                        column = column.push(text(file_name));
+                        column = column.push(
+                            button(file_name)
+                                .style(inner_file_button_style)
+                                .on_press(Message::PopFileFromDirectory(PathBuf::from(&path))),
+                        );
                     }
 
                     path.pop();
@@ -936,6 +937,35 @@ fn file_button_style(_: &Theme, status: button::Status) -> button::Style {
         button::Status::Disabled => {
             let mut style = button::Style::default()
                 .with_background(Background::Color(get_file_button_background_color(0.1)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Pressed => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.7)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+    }
+}
+
+fn inner_file_button_style(_: &Theme, status: button::Status) -> button::Style {
+    match status {
+        button::Status::Active => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.0)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Hovered => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.7)));
+            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
+            style
+        }
+        button::Status::Disabled => {
+            let mut style = button::Style::default()
+                .with_background(Background::Color(get_file_button_background_color(0.0)));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }

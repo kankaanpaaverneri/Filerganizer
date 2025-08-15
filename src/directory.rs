@@ -87,7 +87,7 @@ impl Directory {
         path: &PathBuf,
         new_directory: &mut Directory,
     ) -> std::io::Result<()> {
-        let read_dir = std::fs::read_dir(path)?; 
+        let read_dir = std::fs::read_dir(path)?;
         let metadata = self.read_parent(path);
         let mut directories = BTreeMap::new();
         let mut files = BTreeMap::new();
@@ -214,7 +214,7 @@ impl Directory {
         }
         Ok(())
     }
-    
+
     #[allow(dead_code)]
     pub fn get_name(&self) -> Option<OsString> {
         if let Some(metadata) = self.get_metadata() {
@@ -237,6 +237,18 @@ impl Directory {
 
     pub fn get_mut_files(&mut self) -> &mut Option<BTreeMap<OsString, File>> {
         &mut self.files
+    }
+
+    pub fn get_mut_file_by_path(&mut self, file_path: &PathBuf) -> Option<(OsString, File)> {
+        if let Some(file_name) = file_path.iter().last() {
+            if let Some(mut files) = self.files.take() {
+                if let Some((key, file)) = files.remove_entry(file_name) {
+                    self.files = Some(files);
+                    return Some((key, file));
+                }
+            }
+        }
+        None
     }
 
     pub fn get_metadata(&self) -> &Option<Metadata> {
@@ -265,7 +277,7 @@ impl Directory {
 }
 
 fn read_parent_entry(path: &PathBuf, last_directory: &OsStr) -> std::io::Result<Option<Metadata>> {
-    let read_dir = std::fs::read_dir(path)?; 
+    let read_dir = std::fs::read_dir(path)?;
     for entry in read_dir {
         if let Some(ok_entry) = entry.ok() {
             if ok_entry.file_name() == last_directory {
@@ -398,38 +410,41 @@ pub mod tests {
         let path = match std::env::consts::OS {
             "windows" => PathBuf::from("C:/home/verneri/rust"),
             "macos" | "linux" => PathBuf::from("/home/verneri/rust"),
-            _ => PathBuf::new()
-        }; 
+            _ => PathBuf::new(),
+        };
         let prefix = identify_prefix(&path);
         match std::env::consts::OS {
             "windows" => assert_eq!(prefix, String::from("C:/\\")),
             "macos" | "linux" => assert_eq!(prefix, String::from("//home")),
-            _ => panic!("Not supported operating system")
+            _ => panic!("Not supported operating system"),
         };
         let path = PathBuf::from("C:/Users/verneri");
         let prefix = identify_prefix(&path);
         match std::env::consts::OS {
             "windows" => assert_eq!(prefix, String::from("C:/\\")),
             "macos" | "linux" => assert_eq!(prefix, String::from("C:/Users")),
-            _ => panic!("Not supported operating system")
+            _ => panic!("Not supported operating system"),
         };
     }
-    
+
     #[test]
     fn test_file_already_exists_in_directory() {
-        let mut dir = Directory::new(None); 
+        let mut dir = Directory::new(None);
         dir.insert_file(OsString::from("file.txt"), File::new(Metadata::new()));
         match dir.file_already_exists_in_directory(&OsString::from("file.txt")) {
             Ok(_) => {
                 panic!("File exists in directory");
-            },
+            }
             Err(error) => {
-                assert_eq!(error.to_string(), String::from("File name already exists in directory"));
+                assert_eq!(
+                    error.to_string(),
+                    String::from("File name already exists in directory")
+                );
             }
         }
         let dir = Directory::new(None);
         match dir.file_already_exists_in_directory(&OsString::from("file.txt")) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(error) => {
                 panic!("File didn't exist in directory, {}", error);
             }
@@ -438,38 +453,58 @@ pub mod tests {
 
     #[test]
     fn test_filter_duplicate_directories() {
-        let mut new_directories = BTreeMap::new();   
+        let mut new_directories = BTreeMap::new();
         new_directories.insert(OsString::from("content"), Directory::new(None));
         new_directories.insert(OsString::from("text_files"), Directory::new(None));
         new_directories.insert(OsString::from("images"), Directory::new(None));
         let mut directory = Directory::new(None);
         directory.filter_duplicate_directories(&mut new_directories);
-        assert_eq!(new_directories.contains_key(&OsString::from("content")), true);
-        assert_eq!(new_directories.contains_key(&OsString::from("text_files")), true);
-        assert_eq!(new_directories.contains_key(&OsString::from("images")), true);
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("content")),
+            true
+        );
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("text_files")),
+            true
+        );
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("images")),
+            true
+        );
         directory.insert_directory(Directory::new(None), "text_files");
         directory.filter_duplicate_directories(&mut new_directories);
-        assert_eq!(new_directories.contains_key(&OsString::from("text_files")), false);
-        assert_eq!(new_directories.contains_key(&OsString::from("content")), true);
-        assert_eq!(new_directories.contains_key(&OsString::from("images")), true);
-
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("text_files")),
+            false
+        );
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("content")),
+            true
+        );
+        assert_eq!(
+            new_directories.contains_key(&OsString::from("images")),
+            true
+        );
     }
 
     #[test]
     fn test_insert_new_directories() {
-       let mut directory = Directory::new(None); 
-       let mut directories = BTreeMap::new();
-       directories.insert(OsString::from("content"), Directory::new(None));
-       directories.insert(OsString::from("text_files"), Directory::new(None));
-       directories.insert(OsString::from("images"), Directory::new(None));
-       directory.insert_new_directories(directories);
-       if let Some(directories) = directory.get_directories() {
+        let mut directory = Directory::new(None);
+        let mut directories = BTreeMap::new();
+        directories.insert(OsString::from("content"), Directory::new(None));
+        directories.insert(OsString::from("text_files"), Directory::new(None));
+        directories.insert(OsString::from("images"), Directory::new(None));
+        directory.insert_new_directories(directories);
+        if let Some(directories) = directory.get_directories() {
             assert_eq!(directories.contains_key(&OsString::from("content")), true);
-            assert_eq!(directories.contains_key(&OsString::from("text_files")), true);
+            assert_eq!(
+                directories.contains_key(&OsString::from("text_files")),
+                true
+            );
             assert_eq!(directories.contains_key(&OsString::from("images")), true);
-       } else {
+        } else {
             panic!("Could not get directories");
-       }
+        }
     }
 
     #[test]
@@ -479,7 +514,10 @@ pub mod tests {
         directory.insert_directory(Directory::new(None), "text_files");
         directory.remove_sub_directory(&OsString::from("content"));
         if let Some(directories) = directory.get_directories() {
-            assert_eq!(directories.contains_key(&OsString::from("text_files")), true);
+            assert_eq!(
+                directories.contains_key(&OsString::from("text_files")),
+                true
+            );
             assert_eq!(directories.contains_key(&OsString::from("content")), false);
         } else {
             panic!("Could not get directories");
@@ -492,19 +530,18 @@ pub mod tests {
         directory.insert_directory(Directory::new(None), "content");
         directory.insert_directory(Directory::new(None), "text_files");
         directory.insert_file(OsString::from("file.txt"), File::new(Metadata::new()));
-        directory.clear_directory_content(); 
+        directory.clear_directory_content();
         if let Some(_directories) = directory.get_directories() {
             panic!("There should not be any directories after clear");
-        } 
+        }
         if let Some(_files) = directory.get_files() {
             panic!("There should not be any files after clear");
         }
-
     }
 
     #[test]
     fn test_get_file_count() {
-        let mut directory = Directory::new(None);  
+        let mut directory = Directory::new(None);
         assert_eq!(directory.get_file_count(), 0);
         directory.insert_file(OsString::from("file.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file1.txt"), File::new(Metadata::new()));
@@ -522,7 +559,7 @@ pub mod tests {
             Some(15.5),
             false,
             None,
-            None
+            None,
         ))
     }
 
@@ -530,29 +567,41 @@ pub mod tests {
         let mut root_identifier = match std::env::consts::OS {
             "windows" => OsString::from("C:/"),
             "macos" | "linux" => OsString::from("/"),
-            _ => OsString::new()
+            _ => OsString::new(),
         };
-        let mut directory = Directory::new(create_dummy_metadata_with_name(OsString::from(&root_identifier)));
-        directory.insert_directory(Directory::new(create_dummy_metadata_with_name(
-                OsString::from("text_files"))),
-                "text_files"
+        let mut directory = Directory::new(create_dummy_metadata_with_name(OsString::from(
+            &root_identifier,
+        )));
+        directory.insert_directory(
+            Directory::new(create_dummy_metadata_with_name(OsString::from(
+                "text_files",
+            ))),
+            "text_files",
         );
-        directory.insert_directory(Directory::new(create_dummy_metadata_with_name(
-                OsString::from("content"))),
-                "content"
+        directory.insert_directory(
+            Directory::new(create_dummy_metadata_with_name(OsString::from("content"))),
+            "content",
         );
-        directory.insert_directory(Directory::new(create_dummy_metadata_with_name(
-                OsString::from("images"))),
-                "images"
+        directory.insert_directory(
+            Directory::new(create_dummy_metadata_with_name(OsString::from("images"))),
+            "images",
         );
 
         directory.insert_file(OsString::from("file1.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file2.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file3.txt"), File::new(Metadata::new()));
         root_identifier.push("text_files");
-        if let Some(text_files) = directory.get_mut_directory_by_path(&PathBuf::from(&root_identifier)) {
-            text_files.insert_directory(Directory::new(create_dummy_metadata_with_name(OsString::from("docx"))), "docx");
-            text_files.insert_directory(Directory::new(create_dummy_metadata_with_name(OsString::from("txt"))), "txt");
+        if let Some(text_files) =
+            directory.get_mut_directory_by_path(&PathBuf::from(&root_identifier))
+        {
+            text_files.insert_directory(
+                Directory::new(create_dummy_metadata_with_name(OsString::from("docx"))),
+                "docx",
+            );
+            text_files.insert_directory(
+                Directory::new(create_dummy_metadata_with_name(OsString::from("txt"))),
+                "txt",
+            );
             text_files.insert_file(OsString::from("file4.txt"), File::new(Metadata::new()));
             text_files.insert_file(OsString::from("file5.txt"), File::new(Metadata::new()));
         }
@@ -565,7 +614,7 @@ pub mod tests {
         let search_path = match std::env::consts::OS {
             "windows" => PathBuf::from("C:/text_files/txt"),
             "macos" | "linux" => PathBuf::from("/text_files/txt"),
-            _ => PathBuf::new()
+            _ => PathBuf::new(),
         };
         let dir = directory.get_directory_by_path(&search_path);
         if let Some(name) = dir.get_name() {
@@ -577,7 +626,7 @@ pub mod tests {
         let search_path = match std::env::consts::OS {
             "windows" => PathBuf::from("C:/content/video"),
             "macos" | "linux" => PathBuf::from("/content/video"),
-            _ => PathBuf::new()
+            _ => PathBuf::new(),
         };
         let dir = directory.get_directory_by_path(&search_path);
         if let Some(root) = dir.get_name() {
@@ -593,15 +642,15 @@ pub mod tests {
         let search_path = match std::env::consts::OS {
             "windows" => PathBuf::from("C:/text_files/txt"),
             "macos" | "linux" => PathBuf::from("/text_files/txt"),
-            _ => PathBuf::new()
+            _ => PathBuf::new(),
         };
 
         if let Some(txt) = directory.get_mut_directory_by_path(&search_path) {
-           if let Some(txt_name) = txt.get_name() {
+            if let Some(txt_name) = txt.get_name() {
                 assert_eq!(txt_name, OsString::from("txt"));
-           } else {
+            } else {
                 panic!("txt name was incorrect");
-           }
+            }
         } else {
             panic!("Didn't get directory by path");
         }
@@ -609,7 +658,7 @@ pub mod tests {
         let search_path = match std::env::consts::OS {
             "windows" => PathBuf::from("C:/text_files/docx"),
             "macos" | "linux" => PathBuf::from("/text_files/docx"),
-            _ => PathBuf::new()
+            _ => PathBuf::new(),
         };
 
         if let Some(docx) = directory.get_mut_directory_by_path(&search_path) {
@@ -627,22 +676,25 @@ pub mod tests {
 
     #[test]
     fn test_contains_unique_files() {
-       let directory = get_dummy_directory_tree();
-       let mut files = BTreeMap::new();
-       files.insert(OsString::from("file01.txt"), File::new(Metadata::new()));
-       files.insert(OsString::from("file02.txt"), File::new(Metadata::new()));
-       files.insert(OsString::from("file1.txt"), File::new(Metadata::new()));
-       if let Err(error) = directory.contains_unique_files(&files) {
-            assert_eq!(error.to_string(), String::from("Duplicate files found in directory"));
-       } else {
+        let directory = get_dummy_directory_tree();
+        let mut files = BTreeMap::new();
+        files.insert(OsString::from("file01.txt"), File::new(Metadata::new()));
+        files.insert(OsString::from("file02.txt"), File::new(Metadata::new()));
+        files.insert(OsString::from("file1.txt"), File::new(Metadata::new()));
+        if let Err(error) = directory.contains_unique_files(&files) {
+            assert_eq!(
+                error.to_string(),
+                String::from("Duplicate files found in directory")
+            );
+        } else {
             panic!("Failed to detect duplicate files in directory");
-       }
-       let mut files = BTreeMap::new();
-       files.insert(OsString::from("file01.txt"), File::new(Metadata::new()));
-       files.insert(OsString::from("file02.txt"), File::new(Metadata::new()));
-       if let Err(error) = directory.contains_unique_files(&files) {
+        }
+        let mut files = BTreeMap::new();
+        files.insert(OsString::from("file01.txt"), File::new(Metadata::new()));
+        files.insert(OsString::from("file02.txt"), File::new(Metadata::new()));
+        if let Err(error) = directory.contains_unique_files(&files) {
             panic!("Failed to detect duplicate files in directory: {}", error);
-       }
+        }
     }
 
     #[test]
@@ -667,7 +719,10 @@ pub mod tests {
     #[test]
     fn test_insert_directory() {
         let mut directory = Directory::new(None);
-        directory.insert_directory(Directory::new(create_dummy_metadata_with_name(OsString::from("content"))), "content"); 
+        directory.insert_directory(
+            Directory::new(create_dummy_metadata_with_name(OsString::from("content"))),
+            "content",
+        );
         if let Some(directories) = directory.get_directories() {
             assert_eq!(directories.contains_key(&OsString::from("content")), true);
         } else {
@@ -677,18 +732,18 @@ pub mod tests {
 
     #[test]
     fn test_insert_file() {
-       let mut directory = Directory::new(None); 
-       directory.insert_file(OsString::from("file1.txt"), File::new(Metadata::new()));
-       directory.insert_file(OsString::from("file2.txt"), File::new(Metadata::new()));
-       directory.insert_file(OsString::from("file3.txt"), File::new(Metadata::new()));
-       directory.insert_file(OsString::from("file4.txt"), File::new(Metadata::new()));
-       if let Some(files) = directory.get_files() {
+        let mut directory = Directory::new(None);
+        directory.insert_file(OsString::from("file1.txt"), File::new(Metadata::new()));
+        directory.insert_file(OsString::from("file2.txt"), File::new(Metadata::new()));
+        directory.insert_file(OsString::from("file3.txt"), File::new(Metadata::new()));
+        directory.insert_file(OsString::from("file4.txt"), File::new(Metadata::new()));
+        if let Some(files) = directory.get_files() {
             assert_eq!(files.contains_key(&OsString::from("file1.txt")), true);
             assert_eq!(files.contains_key(&OsString::from("file2.txt")), true);
             assert_eq!(files.contains_key(&OsString::from("file3.txt")), true);
             assert_eq!(files.contains_key(&OsString::from("file4.txt")), true);
             assert_eq!(files.contains_key(&OsString::from("file5.txt")), false);
-       }
-    //pub fn insert_file(&mut self, file_name: OsString, file: File) {
+        }
+        //pub fn insert_file(&mut self, file_name: OsString, file: File) {
     }
 }
