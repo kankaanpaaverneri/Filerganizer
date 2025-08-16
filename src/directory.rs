@@ -239,18 +239,6 @@ impl Directory {
         &mut self.files
     }
 
-    pub fn get_mut_file_by_path(&mut self, file_path: &PathBuf) -> Option<(OsString, File)> {
-        if let Some(file_name) = file_path.iter().last() {
-            if let Some(mut files) = self.files.take() {
-                if let Some((key, file)) = files.remove_entry(file_name) {
-                    self.files = Some(files);
-                    return Some((key, file));
-                }
-            }
-        }
-        None
-    }
-
     pub fn get_metadata(&self) -> &Option<Metadata> {
         &self.metadata
     }
@@ -398,6 +386,16 @@ pub mod system_dir {
             return Some(PathBuf::from(key));
         }
         None
+    }
+    pub fn get_current_dir() -> Option<PathBuf> {
+        let result = std::env::current_dir();
+        match result {
+            Ok(current_dir) => Some(current_dir),
+            Err(error) => {
+                eprintln!("Could not locate working directory: {}", error);
+                None
+            }
+        }
     }
 }
 

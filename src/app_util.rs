@@ -71,28 +71,49 @@ pub fn select_file(
     Ok(())
 }
 
+pub fn select_files_in_boundary(
+    in_file_boundaries: bool,
+    files_selected: &mut BTreeMap<OsString, File>,
+    files_unselected: &mut BTreeMap<OsString, File>,
+    key: &OsStr,
+    value: File,
+) {
+    if in_file_boundaries {
+        files_selected.insert(OsString::from(key), value);
+    } else {
+        files_unselected.insert(OsString::from(key), value);
+    }
+}
+
 pub fn convert_os_str_to_str(key: &OsStr) -> std::io::Result<&str> {
-   if let Some(key) = key.to_str() {
+    if let Some(key) = key.to_str() {
         return Ok(key);
-   } 
-   Err(std::io::Error::new(ErrorKind::Other, "Could not parse &OsStr to &str"))
+    }
+    Err(std::io::Error::new(
+        ErrorKind::Other,
+        "Could not parse &OsStr to &str",
+    ))
 }
 
 pub fn convert_path_to_str<'a>(path: &'a PathBuf) -> std::io::Result<&'a str> {
     if let Some(path) = path.to_str() {
         return Ok(path);
     }
-    Err(std::io::Error::new(ErrorKind::Other, "Coult not parse PathBuf to &str"))
+    Err(std::io::Error::new(
+        ErrorKind::Other,
+        "Coult not parse PathBuf to &str",
+    ))
 }
 
 pub fn just_rename_checked(checkbox_states: &CheckboxStates) -> bool {
     if checkbox_states.insert_directory_name_to_file_name
-    || checkbox_states.insert_date_to_file_name
-    || checkbox_states.remove_uppercase
-    || checkbox_states.replace_spaces_with_underscores
-    || checkbox_states.use_only_ascii
-    || checkbox_states.remove_original_file_name
-    || checkbox_states.add_custom_name {
+        || checkbox_states.insert_date_to_file_name
+        || checkbox_states.remove_uppercase
+        || checkbox_states.replace_spaces_with_underscores
+        || checkbox_states.use_only_ascii
+        || checkbox_states.remove_original_file_name
+        || checkbox_states.add_custom_name
+    {
         return true;
     }
     return false;
@@ -102,23 +123,25 @@ pub fn get_date_type(date_type: Option<DateType>) -> std::io::Result<DateType> {
     if let Some(date_type) = date_type {
         return Ok(date_type);
     }
-    Err(std::io::Error::new(ErrorKind::NotFound, "Date type not specified."))
+    Err(std::io::Error::new(
+        ErrorKind::NotFound,
+        "Date type not specified.",
+    ))
 }
-
 
 pub fn is_substring(needle: &str, haystack: &str) -> usize {
     let mut score = 0;
     let mut iterator = needle.chars();
     for hay in haystack.chars() {
-       if let Some(next) = iterator.next() {
+        if let Some(next) = iterator.next() {
             if hay == next {
-               score += 1; 
+                score += 1;
             } else {
                 return score;
             }
-       } else {
+        } else {
             break;
-       }
+        }
     }
     score
 }
@@ -130,32 +153,14 @@ mod tests {
 
     #[test]
     fn test_just_rename_checked() {
-        let checkbox_states = CheckboxStates::new(
-            false,
-            false,
-            true,
-            true,
-            true,
-            true,
-            true,
-            true,
-            true
-        );
+        let checkbox_states =
+            CheckboxStates::new(false, false, true, true, true, true, true, true, true);
         assert_eq!(just_rename_checked(&checkbox_states), true);
-        let checkbox_states = CheckboxStates::new(
-            true,
-            true,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
+        let checkbox_states =
+            CheckboxStates::new(true, true, false, false, false, false, false, false, false);
         assert_eq!(just_rename_checked(&checkbox_states), false);
     }
-    
+
     fn create_dummy_files() -> BTreeMap<OsString, File> {
         let mut files = BTreeMap::new();
         files.insert(OsString::from("file1.txt"), File::new(Metadata::new()));
@@ -166,45 +171,52 @@ mod tests {
     }
 
     fn create_dummy_files_selected() -> BTreeMap<OsString, File> {
-        let mut files_selected = BTreeMap::new(); 
+        let mut files_selected = BTreeMap::new();
         files_selected.insert(OsString::from("image0.jpg"), File::new(Metadata::new()));
         files_selected.insert(OsString::from("image1.jpg"), File::new(Metadata::new()));
         files_selected.insert(OsString::from("image2.jpg"), File::new(Metadata::new()));
         files_selected.insert(OsString::from("image3.jpg"), File::new(Metadata::new()));
         files_selected
     }
-    
+
     #[test]
     fn test_select_file() {
-        let mut files = create_dummy_files(); 
-        let mut files_selected = create_dummy_files_selected(); 
-        match select_file(&mut files, &mut files_selected, &OsString::from("file3.txt")) {
+        let mut files = create_dummy_files();
+        let mut files_selected = create_dummy_files_selected();
+        match select_file(
+            &mut files,
+            &mut files_selected,
+            &OsString::from("file3.txt"),
+        ) {
             Ok(()) => {
                 assert!(files_selected.contains_key(&OsString::from("file3.txt")));
-            },
+            }
             Err(error) => {
                 panic!("Error in select file: {}", error);
             }
         }
         files.insert(OsString::from("file3.txt"), File::new(Metadata::new()));
-        match select_file(&mut files, &mut files_selected, &OsString::from("file3.txt")) {
+        match select_file(
+            &mut files,
+            &mut files_selected,
+            &OsString::from("file3.txt"),
+        ) {
             Ok(()) => {
                 panic!("File should not have been able to select");
-            },
+            }
             Err(error) => {
                 assert_eq!(error.to_string(), String::from("Duplicate file name found"))
             }
         }
-
     }
 
     #[test]
     fn test_are_paths_equal() {
-       let path1 = PathBuf::from("/home/verneri/screen_record"); 
-       let path2 = PathBuf::from("/home/verneri/rust");
-       assert_eq!(are_paths_equal(&path1, &path2), false);
-       let path3 = PathBuf::from("/home/verneri/screen_record");
-       assert_eq!(are_paths_equal(&path1, &path3), true);
+        let path1 = PathBuf::from("/home/verneri/screen_record");
+        let path2 = PathBuf::from("/home/verneri/rust");
+        assert_eq!(are_paths_equal(&path1, &path2), false);
+        let path3 = PathBuf::from("/home/verneri/screen_record");
+        assert_eq!(are_paths_equal(&path1, &path3), true);
     }
 
     fn create_dummy_directory() -> Directory {
@@ -214,16 +226,16 @@ mod tests {
         directory.insert_file(OsString::from("file3.txt"), File::new(Metadata::new()));
         directory.insert_file(OsString::from("file4.txt"), File::new(Metadata::new()));
         directory
-    } 
+    }
 
     #[test]
     fn test_directories_have_duplicate_files() {
-       let dir1 = create_dummy_directory(); 
-       let dir2 = create_dummy_directory();
-       assert_eq!(directories_have_duplicate_files(&dir1, &dir2), true);
-       let mut dir3 = Directory::new(None);
-       dir3.insert_file(OsString::from("image.jpg"), File::new(Metadata::new()));
-       assert_eq!(directories_have_duplicate_files(&dir1, &dir3), false);
+        let dir1 = create_dummy_directory();
+        let dir2 = create_dummy_directory();
+        assert_eq!(directories_have_duplicate_files(&dir1, &dir2), true);
+        let mut dir3 = Directory::new(None);
+        dir3.insert_file(OsString::from("image.jpg"), File::new(Metadata::new()));
+        assert_eq!(directories_have_duplicate_files(&dir1, &dir3), false);
     }
 
     fn create_dummy_directory_with_directories() -> Directory {
@@ -235,11 +247,11 @@ mod tests {
 
     #[test]
     fn test_directories_have_duplicate_directories() {
-       let dir1 = create_dummy_directory_with_directories(); 
-       let dir2 = create_dummy_directory_with_directories();
-       assert_eq!(directories_have_duplicate_directories(&dir1, &dir2), true);
-       let mut dir3 = Directory::new(None);
-       dir3.insert_directory(Directory::new(None), "new_dir");
-       assert_eq!(directories_have_duplicate_directories(&dir1, &dir3), false);
-    } 
+        let dir1 = create_dummy_directory_with_directories();
+        let dir2 = create_dummy_directory_with_directories();
+        assert_eq!(directories_have_duplicate_directories(&dir1, &dir2), true);
+        let mut dir3 = Directory::new(None);
+        dir3.insert_directory(Directory::new(None), "new_dir");
+        assert_eq!(directories_have_duplicate_directories(&dir1, &dir3), false);
+    }
 }

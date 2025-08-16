@@ -106,9 +106,13 @@ impl Layout {
         }
     }
 
-    fn main_layout<'a>(&self, _: &App) -> Container<'a, Message> {
+    fn main_layout<'a>(&self, app: &App) -> Container<'a, Message> {
+        let files_have_been_organized = match app.get_files_have_been_organized() {
+            true => "Files have been filerganized",
+            false => "",
+        };
         container(column![
-            text("Filerganizer").size(50),
+            row![text("Filerganizer").size(50)].spacing(10).padding(10),
             row![
                 button("Select directory to organize")
                     .style(directory_button_style)
@@ -118,7 +122,15 @@ impl Layout {
                     .style(directory_button_style)
             ]
             .spacing(10)
+            .padding(10),
+            row![text(files_have_been_organized)
+                .color(Color::from_rgb(0.0, 0.5, 0.1))
+                .center()
+                .size(25)]
+            .spacing(10)
+            .padding(10)
         ])
+        .padding(10)
         .center(Fill)
     }
 
@@ -459,9 +471,14 @@ impl Layout {
             if let Some(file_name) = key.to_str() {
                 path_stack.push(key);
                 column = column.push(
-                    button(file_name)
-                        .style(file_button_style)
-                        .on_press(Message::SelectFile(PathBuf::from(&path_stack))),
+                    mouse_area(
+                        button(file_name)
+                            .style(file_button_style)
+                            .on_press(Message::SelectFile(PathBuf::from(&path_stack))),
+                    )
+                    .on_right_press(
+                        Message::SelectMultipleFilesInFilesSelected(String::from(file_name), i),
+                    ),
                 );
                 path_stack.pop();
             }
@@ -550,7 +567,7 @@ impl Layout {
         files_selectable: bool,
     ) -> Column<'a, Message> {
         if let Some(files) = root.get_files() {
-            for key in files.keys() {
+            for (i, key) in files.keys().enumerate() {
                 if let Some(file_name) = key.to_str() {
                     path.push(key);
 
@@ -562,7 +579,7 @@ impl Layout {
                                     .width(Fill)
                                     .on_press(Message::SelectFile(PathBuf::from(&path))),
                             )
-                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path))),
+                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path), i)),
                         );
                     } else {
                         column = column.push(
@@ -570,8 +587,9 @@ impl Layout {
                                 button(file_name)
                                     .width(Fill)
                                     .style(inner_file_button_style)
-                                    .on_press(Message::PopFileFromDirectory(PathBuf::from(&path))),
-                            ), // Do this later .on_right_press(Message::SelectMultipleFiles)
+                                    .on_press(Message::SelectFile(PathBuf::from(&path))),
+                            )
+                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path), i)),
                         );
                     }
 

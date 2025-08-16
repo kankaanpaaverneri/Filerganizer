@@ -10,7 +10,7 @@ use crate::directory::Directory;
 use crate::file::File;
 use crate::filesystem;
 use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
-use crate::metadata::{DateType, Metadata};
+use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
 use crate::save_directory::SAVE_FILE_NAME;
@@ -29,7 +29,7 @@ pub struct App {
 
     directories_selected: Vec<PathBuf>,
     directory_selected: Option<PathBuf>,
-    multiple_selection: String,
+    multiple_selection: MultipleSelection,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
@@ -38,6 +38,21 @@ pub struct App {
     order_of_filename_components: Vec<String>,
     index_position: Option<IndexPosition>,
     files_organized: BTreeMap<OsString, File>,
+    files_have_been_organized: bool,
+}
+
+struct MultipleSelection {
+    file_name: String,
+    file_index: usize,
+}
+
+impl MultipleSelection {
+    fn new() -> Self {
+        MultipleSelection {
+            file_name: String::new(),
+            file_index: 0,
+        }
+    }
 }
 
 pub mod filename_components {
@@ -62,7 +77,7 @@ impl Default for App {
 
             directories_selected: Vec::new(),
             directory_selected: None,
-            multiple_selection: String::new(),
+            multiple_selection: MultipleSelection::new(),
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
@@ -71,6 +86,7 @@ impl Default for App {
             order_of_filename_components: Vec::new(),
             index_position: None,
             files_organized: BTreeMap::new(),
+            files_have_been_organized: false,
         }
     }
 }
@@ -90,7 +106,8 @@ pub enum Message {
     ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
     SelectFile(PathBuf),
-    SelectMultipleFiles(PathBuf),
+    SelectMultipleFiles(PathBuf, usize),
+    SelectMultipleFilesInFilesSelected(String, usize),
     SelectAllFiles,
     PutAllFilesBack,
     InputNewDirectoryName(String),
@@ -100,7 +117,6 @@ pub enum Message {
     DateTypeSelected(DateType),
     ExtractContentFromDirectory(PathBuf),
     ExtractAllContentFromDirectory(PathBuf),
-    PopFileFromDirectory(PathBuf),
     InsertFilesToSelectedDirectory,
     SwapFileNameComponents(usize),
     FilenameInput(String),
@@ -135,7 +151,9 @@ impl App {
                     self.error = error.to_string();
                 }
                 if is_submit {
-                    self.layout = Layout::DirectoryOrganizingLayout;
+                    if let Err(error) = self.switch_layout(&Layout::DirectoryOrganizingLayout) {
+                        self.error = error.to_string();
+                    }
                 }
                 Task::none()
             }
@@ -217,7 +235,9 @@ impl App {
                 return Task::none();
             }
             Message::SelectFile(file_path) => {
-                if let Some(directory) = self.root.get_mut_directory_by_path(&self.path) {
+                let mut directory_path = PathBuf::from(&file_path);
+                directory_path.pop();
+                if let Some(directory) = self.root.get_mut_directory_by_path(&directory_path) {
                     if let Some(files) = directory.get_mut_files() {
                         if let Some(file_name) = file_path.iter().last() {
                             if let Err(error) =
@@ -230,15 +250,18 @@ impl App {
                 }
                 return Task::none();
             }
-            Message::SelectMultipleFiles(file_path) => {
-                match self.select_multiple_files(&file_path) {
-                    Ok(files) => {
-                        for (key, value) in files {
-                            self.files_selected.insert(key, value);
-                            self.multiple_selection = String::new();
-                        }
-                    }
-                    Err(error) => self.error = error.to_string(),
+            Message::SelectMultipleFiles(file_path, file_index) => {
+                let result = self.select_multiple_files_from_directory(&file_path, file_index);
+                if let Err(error) = result {
+                    self.error = error.to_string();
+                }
+                Task::none()
+            }
+            Message::SelectMultipleFilesInFilesSelected(file_name, file_index) => {
+                if let Err(error) =
+                    self.select_multiple_files_from_files_selected(file_name, file_index)
+                {
+                    self.error = error.to_string();
                 }
                 Task::none()
             }
@@ -418,50 +441,6 @@ impl App {
                         Err(error) => self.error = error.to_string(),
                     }
                 }
-
-                Task::none()
-            }
-            Message::PopFileFromDirectory(file_path) => {
-                let mut path_to_parent_directory = PathBuf::from(&file_path);
-                if !path_to_parent_directory.pop() {
-                    self.error = String::from("Could not remove file name component from path");
-                    return Task::none();
-                }
-                if !path_to_parent_directory.pop() {
-                    self.error = String::from("Could not remove second component from path");
-                    return Task::none();
-                }
-
-                let mut file_directory = PathBuf::from(&file_path);
-                if !file_directory.pop() {
-                    self.error = String::from("Could not remove file name component from path");
-                    return Task::none();
-                }
-                let mut file_name = OsString::new();
-                let mut file = File::new(Metadata::new());
-                let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
-                let selected_dir = parent_dir.get_directory_by_path(&file_directory);
-                if app_util::directories_have_duplicate_files(parent_dir, selected_dir) {
-                    self.error =
-                        std::io::Error::new(ErrorKind::Other, "Directories have duplicate files")
-                            .to_string();
-                    return Task::none();
-                }
-                if let Some(selected_file_dir) =
-                    self.root.get_mut_directory_by_path(&file_directory)
-                {
-                    if let Some((f_n, f)) =
-                        selected_file_dir.get_mut_file_by_path(&file_path).take()
-                    {
-                        file_name = f_n;
-                        file = f;
-                    }
-                }
-                if let Err(error) =
-                    self.place_file_to_parent_directory(&path_to_parent_directory, file_name, file)
-                {
-                    self.error = error.to_string();
-                }
                 Task::none()
             }
             Message::InsertFilesToSelectedDirectory => {
@@ -490,6 +469,11 @@ impl App {
                     self.error = error.to_string();
                 }
                 self.files_organized.clear();
+                self.files_have_been_organized = true;
+                self.init_app_data();
+                if let Err(error) = self.switch_layout(&Layout::Main) {
+                    self.error = error.to_string();
+                }
                 return Task::none();
             }
             Message::TabKeyPressed => {
@@ -579,35 +563,42 @@ impl App {
         self.index_position
     }
 
+    pub fn get_files_have_been_organized(&self) -> bool {
+        self.files_have_been_organized
+    }
+
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
         match layout {
-            Layout::DirectorySelectionLayout => match std::env::consts::OS {
-                "windows" => {
-                    if let Err(error) = self.switch_layout_windows() {
-                        self.error = error.to_string();
+            Layout::DirectorySelectionLayout => {
+                self.files_have_been_organized = false;
+                match std::env::consts::OS {
+                    "windows" => {
+                        if let Err(error) = self.switch_layout_windows() {
+                            self.error = error.to_string();
+                        }
+                        self.layout = Layout::DirectorySelectionLayout;
+                        Ok(())
                     }
-                    self.layout = Layout::DirectorySelectionLayout;
-                    Ok(())
-                }
-                "macos" => {
-                    if let Err(error) = self.switch_layout_macos() {
-                        self.error = error.to_string();
+                    "macos" => {
+                        if let Err(error) = self.switch_layout_macos() {
+                            self.error = error.to_string();
+                        }
+                        self.layout = Layout::DirectorySelectionLayout;
+                        Ok(())
                     }
-                    self.layout = Layout::DirectorySelectionLayout;
-                    Ok(())
-                }
-                "linux" => {
-                    if let Err(error) = self.switch_layout_linux() {
-                        self.error = error.to_string();
+                    "linux" => {
+                        if let Err(error) = self.switch_layout_linux() {
+                            self.error = error.to_string();
+                        }
+                        self.layout = Layout::DirectorySelectionLayout;
+                        Ok(())
                     }
-                    self.layout = Layout::DirectorySelectionLayout;
-                    Ok(())
+                    _ => Err(std::io::Error::new(
+                        ErrorKind::Other,
+                        "Operating system not supported",
+                    )),
                 }
-                _ => Err(std::io::Error::new(
-                    ErrorKind::Other,
-                    "Operating system not supported",
-                )),
-            },
+            }
             Layout::Main => {
                 self.init_app_data();
                 self.layout = Layout::Main;
@@ -1245,25 +1236,6 @@ impl App {
         }
     }
 
-    fn place_file_to_parent_directory(
-        &mut self,
-        path_to_parent_directory: &PathBuf,
-        file_name: OsString,
-        file: File,
-    ) -> std::io::Result<()> {
-        if let Some(parent_dir) = self
-            .root
-            .get_mut_directory_by_path(&path_to_parent_directory)
-        {
-            parent_dir.insert_file(file_name, file);
-            return Ok(());
-        }
-        Err(std::io::Error::new(
-            ErrorKind::NotFound,
-            "Parent directory not found",
-        ))
-    }
-
     fn remove_directories_from_extracted_dir(
         &mut self,
         selected_directory_name: &OsStr,
@@ -1344,44 +1316,149 @@ impl App {
         }
     }
 
-    fn select_multiple_files(
+    fn select_multiple_files_from_directory(
         &mut self,
         file_path: &PathBuf,
+        file_index: usize,
+    ) -> std::io::Result<()> {
+        let files = self.select_multiple_files_by_path(&file_path, file_index)?;
+        for (key, value) in files {
+            self.files_selected.insert(key, value);
+        }
+        Ok(())
+    }
+
+    fn select_multiple_files_from_files_selected(
+        &mut self,
+        file_name: String,
+        file_index: usize,
+    ) -> std::io::Result<()> {
+        if self.multiple_selection.file_name.is_empty() {
+            self.multiple_selection.file_name = file_name;
+            self.multiple_selection.file_index = file_index;
+            return Ok(());
+        } else {
+            let mut files_deselected = BTreeMap::new();
+            let mut files_unselected = BTreeMap::new();
+            let mut in_file_boundaries = false;
+            if self.multiple_selection.file_index > file_index {
+                while let Some((key, value)) = self.files_selected.pop_last() {
+                    if key == OsString::from(&self.multiple_selection.file_name) {
+                        in_file_boundaries = true;
+                    }
+                    app_util::select_files_in_boundary(
+                        in_file_boundaries,
+                        &mut files_deselected,
+                        &mut files_unselected,
+                        &key,
+                        value,
+                    );
+                    if key == OsString::from(&file_name) {
+                        in_file_boundaries = false;
+                    }
+                }
+            } else {
+                while let Some((key, value)) = self.files_selected.pop_first() {
+                    if key == OsString::from(&self.multiple_selection.file_name) {
+                        in_file_boundaries = true;
+                    }
+                    app_util::select_files_in_boundary(
+                        in_file_boundaries,
+                        &mut files_deselected,
+                        &mut files_unselected,
+                        &key,
+                        value,
+                    );
+                    if key == OsString::from(&file_name) {
+                        in_file_boundaries = false;
+                    }
+                }
+            }
+            // Put files deselected_back to directory
+            if let Some(dir) = self.root.get_mut_directory_by_path(&self.path) {
+                for (key, value) in files_deselected {
+                    dir.insert_file(key, value);
+                }
+            }
+            // Put unselected files back to files selected
+            for (key, value) in files_unselected {
+                self.files_selected.insert(key, value);
+            }
+            self.multiple_selection.file_name.clear();
+            self.multiple_selection.file_index = 0;
+            return Ok(());
+        }
+    }
+
+    fn select_multiple_files_by_path(
+        &mut self,
+        file_path: &PathBuf,
+        file_index: usize,
     ) -> std::io::Result<BTreeMap<OsString, File>> {
         let path = app_util::convert_path_to_str(file_path)?;
-        if self.multiple_selection.is_empty() {
-            self.multiple_selection = String::from(path);
+        if self.multiple_selection.file_name.is_empty() {
+            self.multiple_selection.file_name = String::from(path);
+            self.multiple_selection.file_index = file_index;
             return Ok(BTreeMap::new());
         } else {
             let mut path = PathBuf::from(file_path);
             path.pop();
-            let mut files_selected = BTreeMap::new();
-            let mut left_over_files = BTreeMap::new();
             if let Some(dir) = self.root.get_mut_directory_by_path(&path) {
-                if let Some(files) = dir.get_mut_files().take() {
-                    let mut file_path_found = false;
-                    for (key, value) in files {
-                        if !file_path_found {
-                            files_selected.insert(OsString::from(&key), value);
-                        } else {
-                            left_over_files.insert(OsString::from(&key), value);
+                if let Some(mut files) = dir.get_mut_files().take() {
+                    let mut in_file_boundaries = false;
+                    let initial_path = PathBuf::from(&self.multiple_selection.file_name);
+                    let mut files_selected = BTreeMap::new();
+                    let mut files_unselected = BTreeMap::new();
+
+                    if self.multiple_selection.file_index > file_index {
+                        // Reverse for loop
+                        while let Some((key, value)) = files.pop_last() {
+                            if initial_path.ends_with(&key) {
+                                in_file_boundaries = true;
+                            }
+                            app_util::select_files_in_boundary(
+                                in_file_boundaries,
+                                &mut files_selected,
+                                &mut files_unselected,
+                                &key,
+                                value,
+                            );
+                            if file_path.ends_with(&key) {
+                                in_file_boundaries = false;
+                            }
                         }
-                        if file_path.ends_with(key) {
-                            file_path_found = true;
+                    } else {
+                        // Normal for loop
+                        for (key, value) in files {
+                            if initial_path.ends_with(&key) {
+                                in_file_boundaries = true;
+                            }
+                            app_util::select_files_in_boundary(
+                                in_file_boundaries,
+                                &mut files_selected,
+                                &mut files_unselected,
+                                &key,
+                                value,
+                            );
+
+                            if file_path.ends_with(&key) {
+                                in_file_boundaries = false;
+                            }
                         }
                     }
-                    if file_path_found {
-                        for (key, value) in left_over_files {
-                            dir.insert_file(key, value);
-                        }
-                        return Ok(files_selected);
-                    }
-                    for (key, value) in files_selected {
+
+                    // Place unselected files back to directory
+                    for (key, value) in files_unselected {
                         dir.insert_file(key, value);
                     }
+                    self.multiple_selection.file_name.clear();
+                    self.multiple_selection.file_index = 0;
+                    return Ok(files_selected);
                 }
             }
         }
+        self.multiple_selection.file_name.clear();
+        self.multiple_selection.file_index = 0;
         Err(std::io::Error::new(
             ErrorKind::InvalidInput,
             "Invalid selection",
