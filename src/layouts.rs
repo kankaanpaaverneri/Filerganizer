@@ -108,7 +108,7 @@ impl Layout {
 
     fn main_layout<'a>(&self, app: &App) -> Container<'a, Message> {
         let files_have_been_organized = match app.get_files_have_been_organized() {
-            true => "Files have been filerganized",
+            true => "Your files have been Filerganized",
             false => "",
         };
         container(column![
