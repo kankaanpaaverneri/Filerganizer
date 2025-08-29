@@ -7,9 +7,10 @@ use std::{
 use iced::{
     alignment::{Horizontal, Vertical},
     widget::{
-        button, checkbox, column, container, mouse_area, radio, row, scrollable, text, text_input,
-        Column, Container, Row,
+        button, checkbox, column, container, mouse_area, pick_list, radio, row, scrollable, text,
+        text_input, Column, Container, Row,
     },
+    Alignment::Center,
     Background, Color,
     Length::{Fill, FillPortion},
     Theme,
@@ -23,14 +24,48 @@ use crate::{
     metadata::{DateType, Metadata},
 };
 
+#[derive(Debug, Clone, PartialEq, Copy, Eq)]
+pub enum Replaceable {
+    Dash,
+    Space,
+    Comma,
+}
+
+const MAX_REPLACEABLE_OPTIONS: usize = 3;
+
+impl std::fmt::Display for Replaceable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Replaceable::Dash => "Dash",
+            Replaceable::Space => "Space",
+            Replaceable::Comma => "Comma",
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Eq)]
+pub enum ReplaceWith {
+    Underscore,
+    Nothing,
+}
+
+impl std::fmt::Display for ReplaceWith {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ReplaceWith::Nothing => "Nothing",
+            ReplaceWith::Underscore => "Underscore",
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckboxStates {
     pub organize_by_filetype: bool,
     pub organize_by_date: bool,
     pub insert_date_to_file_name: bool,
     pub insert_directory_name_to_file_name: bool,
-    pub remove_uppercase: bool,
-    pub replace_spaces_with_underscores: bool,
+    pub convert_uppercase_to_lowercase: bool,
+    pub replace_character: bool,
     pub use_only_ascii: bool,
     pub remove_original_file_name: bool,
     pub add_custom_name: bool,
@@ -49,8 +84,8 @@ impl Default for CheckboxStates {
             organize_by_date: false,
             insert_date_to_file_name: false,
             insert_directory_name_to_file_name: false,
-            remove_uppercase: false,
-            replace_spaces_with_underscores: false,
+            convert_uppercase_to_lowercase: false,
+            replace_character: false,
             use_only_ascii: false,
             remove_original_file_name: false,
             add_custom_name: false,
@@ -64,8 +99,8 @@ impl CheckboxStates {
         organize_by_date: bool,
         insert_date_to_file_name: bool,
         insert_directory_name_to_file_name: bool,
-        remove_uppercase: bool,
-        replace_spaces_with_underscores: bool,
+        convert_uppercase_to_lowercase: bool,
+        replace_character: bool,
         use_only_ascii: bool,
         remove_original_file_name: bool,
         add_custom_name: bool,
@@ -75,8 +110,8 @@ impl CheckboxStates {
             organize_by_date,
             insert_date_to_file_name,
             insert_directory_name_to_file_name,
-            remove_uppercase,
-            replace_spaces_with_underscores,
+            convert_uppercase_to_lowercase,
+            replace_character,
             use_only_ascii,
             remove_original_file_name,
             add_custom_name,
@@ -218,6 +253,42 @@ impl Layout {
         }
     }
 
+    fn insert_replaceables<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let mut column = Column::new();
+        if !app.get_checkbox_states().replace_character {
+            return column;
+        }
+        for (i, replaceable_rule) in app.get_replaceables().iter().enumerate() {
+            column = column.push(
+                row![
+                    text("Replace"),
+                    pick_list(
+                        app.get_replaceable_options(),
+                        replaceable_rule.get_replaceable_selected(),
+                        move |replaceable| Message::SelectReplaceable(replaceable, i),
+                    )
+                    .width(150),
+                    text("With"),
+                    pick_list(
+                        app.get_replace_with_options(),
+                        replaceable_rule.get_replace_with_selected(),
+                        move |replace_with| { Message::SelectReplaceWith(replace_with, i) }
+                    ),
+                    button("Remove").on_press(Message::RemoveReplaceable(i))
+                ]
+                .spacing(5)
+                .padding(5)
+                .align_y(Center),
+            );
+        }
+        if !app.get_replaceable_options().is_empty()
+            && app.get_replaceables().len() < MAX_REPLACEABLE_OPTIONS
+        {
+            column = column.push(row![button("Add new").on_press(Message::AddNewReplaceable)]);
+        }
+        column
+    }
+
     fn rules_for_directory<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         let created = radio(
             "Created",
@@ -237,6 +308,7 @@ impl Layout {
             app.get_date_type_selected(),
             Message::DateTypeSelected,
         );
+        let replaceables = self.insert_replaceables(app);
         column![
             text("Rules for directory"),
             column![
@@ -252,15 +324,16 @@ impl Layout {
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 2) }),
                 column![text("Datetype"), created, accessed, modified].padding(10),
                 checkbox(
-                    "Remove uppercase",
-                    app.get_checkbox_states().remove_uppercase
+                    "Convert uppercase to lowercase.",
+                    app.get_checkbox_states().convert_uppercase_to_lowercase
                 )
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 3) }),
                 checkbox(
-                    "Replace spaces with underscores",
-                    app.get_checkbox_states().replace_spaces_with_underscores
+                    "Replace character with.",
+                    app.get_checkbox_states().replace_character
                 )
                 .on_toggle(|toggle| { Message::CheckboxToggled(toggle, 4) }),
+                replaceables,
                 checkbox(
                     "Use ascii characters only",
                     app.get_checkbox_states().use_only_ascii
@@ -350,10 +423,10 @@ impl Layout {
 
     fn convert_text_by_checkbox_states(&self, app: &App, text: String) -> String {
         let mut converted = text;
-        if app.get_checkbox_states().remove_uppercase {
+        if app.get_checkbox_states().convert_uppercase_to_lowercase {
             converted = converted.to_lowercase();
         }
-        if app.get_checkbox_states().replace_spaces_with_underscores {
+        if app.get_checkbox_states().replace_character {
             converted = converted.replace(" ", "_");
         }
         converted

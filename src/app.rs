@@ -5,11 +5,14 @@ use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use std::usize;
 
 use crate::directory::Directory;
 use crate::file::File;
 use crate::filesystem;
-use crate::layouts::{CheckboxStates, DirectoryView, IndexPosition, Layout};
+use crate::layouts::{
+    CheckboxStates, DirectoryView, IndexPosition, Layout, ReplaceWith, Replaceable,
+};
 use crate::metadata::DateType;
 use crate::organize_files;
 use crate::save_directory;
@@ -33,12 +36,37 @@ pub struct App {
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
     checkbox_states: CheckboxStates,
+    replaceable_options: Vec<Replaceable>,
+    replace_with_options: [ReplaceWith; 2],
+    replaceables: Vec<ReplacableSelection>,
     date_type_selected: Option<DateType>,
     filename_input: String,
     order_of_filename_components: Vec<String>,
     index_position: Option<IndexPosition>,
     files_organized: BTreeMap<OsString, File>,
     files_have_been_organized: bool,
+}
+
+pub struct ReplacableSelection {
+    replaceable_selected: Option<Replaceable>,
+    replace_with_selected: Option<ReplaceWith>,
+}
+
+impl ReplacableSelection {
+    pub fn new() -> Self {
+        Self {
+            replace_with_selected: Some(ReplaceWith::Nothing),
+            replaceable_selected: None,
+        }
+    }
+
+    pub fn get_replaceable_selected(&self) -> Option<Replaceable> {
+        self.replaceable_selected
+    }
+
+    pub fn get_replace_with_selected(&self) -> Option<ReplaceWith> {
+        self.replace_with_selected
+    }
 }
 
 struct MultipleSelection {
@@ -81,6 +109,9 @@ impl Default for App {
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
             checkbox_states: CheckboxStates::default(),
+            replaceable_options: vec![Replaceable::Dash, Replaceable::Space, Replaceable::Comma],
+            replace_with_options: [ReplaceWith::Underscore, ReplaceWith::Nothing],
+            replaceables: Vec::new(),
             date_type_selected: None,
             filename_input: String::new(),
             order_of_filename_components: Vec::new(),
@@ -114,6 +145,10 @@ pub enum Message {
     CreateDirectoryWithSelectedFiles,
     RenameFiles,
     CheckboxToggled(bool, usize),
+    SelectReplaceable(Replaceable, usize),
+    SelectReplaceWith(ReplaceWith, usize),
+    AddNewReplaceable,
+    RemoveReplaceable(usize),
     DateTypeSelected(DateType),
     ExtractContentFromDirectory(PathBuf),
     ExtractAllContentFromDirectory(PathBuf),
@@ -354,8 +389,8 @@ impl App {
                             false,
                             self.checkbox_states.insert_date_to_file_name,
                             false,
-                            self.checkbox_states.remove_uppercase,
-                            self.checkbox_states.replace_spaces_with_underscores,
+                            self.checkbox_states.convert_uppercase_to_lowercase,
+                            self.checkbox_states.replace_character,
                             self.checkbox_states.use_only_ascii,
                             self.checkbox_states.remove_original_file_name,
                             self.checkbox_states.add_custom_name,
@@ -373,8 +408,8 @@ impl App {
                             false,
                             self.checkbox_states.insert_date_to_file_name,
                             false,
-                            self.checkbox_states.remove_uppercase,
-                            self.checkbox_states.replace_spaces_with_underscores,
+                            self.checkbox_states.convert_uppercase_to_lowercase,
+                            self.checkbox_states.replace_character,
                             self.checkbox_states.use_only_ascii,
                             self.checkbox_states.remove_original_file_name,
                             self.checkbox_states.add_custom_name,
@@ -392,6 +427,42 @@ impl App {
             }
             Message::CheckboxToggled(toggle, id) => {
                 self.toggle_checkbox(toggle, id);
+                Task::none()
+            }
+            Message::SelectReplaceable(replaceable, index) => {
+                let previous_selected = self.replaceables[index].replaceable_selected;
+                self.replaceables[index].replaceable_selected = Some(replaceable);
+                self.replaceable_options = self
+                    .replaceable_options
+                    .iter()
+                    .filter_map(|option| {
+                        if *option == replaceable {
+                            return None;
+                        }
+                        Some(option.clone())
+                    })
+                    .collect();
+                if let Some(previous_selected) = previous_selected {
+                    self.replaceable_options.push(previous_selected);
+                }
+                Task::none()
+            }
+            Message::SelectReplaceWith(replace_with, index) => {
+                self.replaceables[index].replace_with_selected = Some(replace_with);
+                Task::none()
+            }
+            Message::AddNewReplaceable => {
+                self.replaceables.push(ReplacableSelection::new());
+                Task::none()
+            }
+            Message::RemoveReplaceable(index) => {
+                let removed = self.replaceables.remove(index);
+                if let Some(selected) = removed.get_replaceable_selected() {
+                    self.replaceable_options.push(selected);
+                }
+                if self.replaceables.is_empty() {
+                    self.checkbox_states.replace_character = false;
+                }
                 Task::none()
             }
             Message::DateTypeSelected(date_type) => {
@@ -565,6 +636,18 @@ impl App {
 
     pub fn get_files_have_been_organized(&self) -> bool {
         self.files_have_been_organized
+    }
+
+    pub fn get_replaceable_options(&self) -> Vec<Replaceable> {
+        self.replaceable_options.to_owned()
+    }
+
+    pub fn get_replace_with_options(&self) -> [ReplaceWith; 2] {
+        self.replace_with_options
+    }
+
+    pub fn get_replaceables(&self) -> &Vec<ReplacableSelection> {
+        &self.replaceables
     }
 
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
@@ -1060,10 +1143,13 @@ impl App {
                 self.checkbox_states.organize_by_date = toggle;
             }
             3 => {
-                self.checkbox_states.remove_uppercase = toggle;
+                self.checkbox_states.convert_uppercase_to_lowercase = toggle;
             }
             4 => {
-                self.checkbox_states.replace_spaces_with_underscores = toggle;
+                self.checkbox_states.replace_character = toggle;
+                if toggle && self.replaceables.is_empty() {
+                    self.replaceables.push(ReplacableSelection::new());
+                }
             }
             5 => {
                 self.checkbox_states.use_only_ascii = toggle;

@@ -108,8 +108,8 @@ pub fn convert_path_to_str<'a>(path: &'a PathBuf) -> std::io::Result<&'a str> {
 pub fn just_rename_checked(checkbox_states: &CheckboxStates) -> bool {
     if checkbox_states.insert_directory_name_to_file_name
         || checkbox_states.insert_date_to_file_name
-        || checkbox_states.remove_uppercase
-        || checkbox_states.replace_spaces_with_underscores
+        || checkbox_states.convert_uppercase_to_lowercase
+        || checkbox_states.replace_character
         || checkbox_states.use_only_ascii
         || checkbox_states.remove_original_file_name
         || checkbox_states.add_custom_name
