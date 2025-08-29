@@ -46,7 +46,7 @@ pub struct App {
     files_organized: BTreeMap<OsString, File>,
     files_have_been_organized: bool,
 }
-
+#[derive(Debug)]
 pub struct ReplacableSelection {
     replaceable_selected: Option<Replaceable>,
     replace_with_selected: Option<ReplaceWith>,
@@ -1068,6 +1068,7 @@ impl App {
             let data = organize_files::OrganizingData::new(
                 files_selected,
                 self.checkbox_states.clone(),
+                &self.replaceables,
                 &self.new_directory_name,
                 &self.filename_input,
                 &self.order_of_filename_components,
@@ -1108,6 +1109,7 @@ impl App {
                 organize_files::rename_file_name(organize_files::RenameData::build(
                     &mut renamed_file_name,
                     &checkbox_states,
+                    &self.replaceables,
                     &self.new_directory_name,
                     &self.filename_input,
                     file_count,
@@ -1568,6 +1570,7 @@ impl App {
                         organize_files::OrganizingData::new(
                             self.files_selected.clone(),
                             checkbox_states,
+                            &self.replaceables,
                             directory_name,
                             &custom_filename,
                             &order_of_filename_components,

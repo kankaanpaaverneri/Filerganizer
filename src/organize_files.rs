@@ -1,8 +1,8 @@
-use crate::app::filename_components;
+use crate::app::{filename_components, ReplacableSelection};
 use crate::app_util;
 use crate::directory::Directory;
 use crate::file::File;
-use crate::layouts::{CheckboxStates, IndexPosition};
+use crate::layouts::{CheckboxStates, IndexPosition, ReplaceWith, Replaceable};
 use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub struct OrganizingData<'a> {
     files_selected: BTreeMap<OsString, File>,
     checkbox_states: CheckboxStates,
+    replaceables: &'a Vec<ReplacableSelection>,
     directory_name: &'a str,
     custom_file_name: &'a str,
     file_name_component_order: &'a Vec<String>,
@@ -24,6 +25,7 @@ impl<'a> OrganizingData<'a> {
     pub fn new(
         files_selected: BTreeMap<OsString, File>,
         checkbox_states: CheckboxStates,
+        replaceables: &'a Vec<ReplacableSelection>,
         directory_name: &'a str,
         custom_file_name: &'a str,
         file_name_component_order: &'a Vec<String>,
@@ -33,6 +35,7 @@ impl<'a> OrganizingData<'a> {
         Self {
             files_selected,
             checkbox_states,
+            replaceables,
             directory_name,
             custom_file_name,
             file_name_component_order,
@@ -169,6 +172,7 @@ fn organize_files_by_file_type_and_date(
             data.files_selected,
             file_type_dirs,
             &data.checkbox_states,
+            data.replaceables,
             data.directory_name,
             data.custom_file_name,
             data.file_name_component_order,
@@ -184,6 +188,7 @@ fn organize_files_by_file_type_and_date(
                 let new_data = OrganizingData::new(
                     files_by_filetype,
                     data.checkbox_states.clone(),
+                    data.replaceables,
                     data.directory_name,
                     data.custom_file_name,
                     data.file_name_component_order,
@@ -230,6 +235,7 @@ fn organize_files_by_file_type(
             data.files_selected,
             file_type_dirs,
             &data.checkbox_states,
+            data.replaceables,
             data.directory_name,
             data.custom_file_name,
             data.file_name_component_order,
@@ -263,6 +269,7 @@ fn organize_files_by_date(
             data.files_selected,
             file_date_dirs,
             &data.checkbox_states,
+            data.replaceables,
             data.directory_name,
             data.custom_file_name,
             data.file_name_component_order,
@@ -296,6 +303,7 @@ fn rename_files(
             rename_file_name(RenameData::build(
                 &mut renamed_file_name,
                 &data.checkbox_states,
+                data.replaceables,
                 data.directory_name,
                 data.custom_file_name,
                 file_count,
@@ -345,6 +353,7 @@ pub struct SortData<'a> {
     files_selected: BTreeMap<OsString, File>,
     file_type_directories: &'a mut BTreeMap<OsString, Directory>,
     checkbox_states: &'a CheckboxStates,
+    replaceables: &'a Vec<ReplacableSelection>,
     new_directory_name: &'a str,
     custom_file_name: &'a str,
     file_name_component_order: &'a Vec<String>,
@@ -360,6 +369,7 @@ impl<'a> SortData<'a> {
         files_selected: BTreeMap<OsString, File>,
         file_type_directories: &'a mut BTreeMap<OsString, Directory>,
         checkbox_states: &'a CheckboxStates,
+        replaceables: &'a Vec<ReplacableSelection>,
         new_directory_name: &'a str,
         custom_file_name: &'a str,
         file_name_component_order: &'a Vec<String>,
@@ -374,6 +384,7 @@ impl<'a> SortData<'a> {
             files_selected,
             file_type_directories,
             checkbox_states,
+            replaceables,
             new_directory_name,
             custom_file_name,
             file_name_component_order,
@@ -393,6 +404,7 @@ pub fn sort_files_by_file_type(mut sort_data: SortData) -> std::io::Result<()> {
             rename_file_name(RenameData::build(
                 &mut renamed_file_name,
                 sort_data.checkbox_states,
+                sort_data.replaceables,
                 sort_data.new_directory_name,
                 sort_data.custom_file_name,
                 file_count,
@@ -433,6 +445,7 @@ pub fn sort_files_by_date(mut sort_data: SortData) -> std::io::Result<()> {
             rename_file_name(RenameData::build(
                 &mut renamed_file_name,
                 sort_data.checkbox_states,
+                sort_data.replaceables,
                 sort_data.new_directory_name,
                 sort_data.custom_file_name,
                 file_count,
@@ -467,6 +480,7 @@ pub fn sort_files_by_date(mut sort_data: SortData) -> std::io::Result<()> {
 pub struct RenameData<'a> {
     renamed_file_name: &'a mut String,
     checkbox_states: &'a CheckboxStates,
+    replaceables: &'a Vec<ReplacableSelection>,
     new_directory_name: &'a str,
     custom_file_name: &'a str,
     file_count: usize,
@@ -481,6 +495,7 @@ impl<'a> RenameData<'a> {
     pub fn build(
         renamed_file_name: &'a mut String,
         checkbox_states: &'a CheckboxStates,
+        replaceables: &'a Vec<ReplacableSelection>,
         new_directory_name: &'a str,
         custom_file_name: &'a str,
         file_count: usize,
@@ -493,6 +508,7 @@ impl<'a> RenameData<'a> {
         Self {
             renamed_file_name,
             checkbox_states,
+            replaceables,
             new_directory_name,
             custom_file_name,
             file_count,
@@ -591,11 +607,13 @@ pub fn rename_file_name(rename_data: RenameData) {
     }
 
     if rename_data.checkbox_states.replace_character {
-        custom_name = custom_name.as_str().replace(" ", "_");
-        date = date.as_str().replace(" ", "_");
-        directory_name = directory_name.as_str().replace(" ", "_");
-        original_name = original_name.as_str().replace(" ", "_");
-        file_type = file_type.as_str().replace(" ", "_");
+        replace_characters_by_rules(
+            &mut custom_name,
+            &mut directory_name,
+            &mut original_name,
+            &mut file_type,
+            rename_data.replaceables,
+        );
     }
 
     if rename_data.checkbox_states.use_only_ascii {
@@ -635,6 +653,44 @@ pub fn rename_file_name(rename_data: RenameData) {
         }
         rename_data.renamed_file_name.push_str(file_type.as_str());
     }
+}
+
+fn replace_characters_by_rules(
+    custom_name: &mut String,
+    directory_name: &mut String,
+    original_name: &mut String,
+    file_type: &mut String,
+    replaceables: &Vec<ReplacableSelection>,
+) {
+    for replaceable in replaceables {
+        if let Some(replace) = replaceable.get_replaceable_selected() {
+            if let Some(replace_with) = replaceable.get_replace_with_selected() {
+                replace_character_with(custom_name, replace, replace_with);
+                replace_character_with(directory_name, replace, replace_with);
+                replace_character_with(original_name, replace, replace_with);
+                replace_character_with(file_type, replace, replace_with);
+            }
+        }
+    }
+}
+
+fn replace_character_with(
+    text_component: &mut String,
+    replace: Replaceable,
+    replace_with: ReplaceWith,
+) {
+    let replace_character = match replace {
+        Replaceable::Dash => "-",
+        Replaceable::Space => " ",
+        Replaceable::Comma => ",",
+    };
+    let replace_with_character = match replace_with {
+        ReplaceWith::Nothing => "",
+        ReplaceWith::Underscore => "_",
+    };
+    *text_component = text_component
+        .as_str()
+        .replace(replace_character, replace_with_character);
 }
 
 pub fn get_file_type_from_file_name(file_name: &str) -> Option<String> {
