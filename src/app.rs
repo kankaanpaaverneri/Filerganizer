@@ -60,6 +60,13 @@ impl ReplacableSelection {
         }
     }
 
+    pub fn from(replaceable: Option<Replaceable>, replace_with: Option<ReplaceWith>) -> Self {
+        Self {
+            replaceable_selected: replaceable,
+            replace_with_selected: replace_with,
+        }
+    }
+
     pub fn get_replaceable_selected(&self) -> Option<Replaceable> {
         self.replaceable_selected
     }
@@ -351,6 +358,7 @@ impl App {
                             &self.home_directory_path,
                             path_to_directory,
                             self.checkbox_states.clone(),
+                            &self.replaceables,
                             self.date_type_selected,
                             &self.order_of_filename_components,
                             &self.filename_input,
@@ -1556,11 +1564,16 @@ impl App {
     fn insert_files_to_selected_dir(&mut self) -> std::io::Result<()> {
         if let Some(selected_dir_path) = &self.directory_selected {
             if let Some(selected_dir) = self.root.get_mut_directory_by_path(selected_dir_path) {
-                let (checkbox_states, date_type, order_of_filename_components, custom_filename) =
-                    save_directory::read_directory_rules_from_file(
-                        &self.home_directory_path,
-                        selected_dir_path,
-                    )?;
+                let (
+                    checkbox_states,
+                    date_type,
+                    replaceables,
+                    order_of_filename_components,
+                    custom_filename,
+                ) = save_directory::read_directory_rules_from_file(
+                    &self.home_directory_path,
+                    selected_dir_path,
+                )?;
                 if let Some(last) = selected_dir_path.iter().last() {
                     let directory_name = app_util::convert_os_str_to_str(last)?;
                     organize_files::move_files_to_organized_directory(
@@ -1570,7 +1583,7 @@ impl App {
                         organize_files::OrganizingData::new(
                             self.files_selected.clone(),
                             checkbox_states,
-                            &self.replaceables,
+                            &replaceables,
                             directory_name,
                             &custom_filename,
                             &order_of_filename_components,

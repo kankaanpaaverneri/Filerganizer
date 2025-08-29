@@ -1,5 +1,6 @@
-use crate::app::filename_components;
+use crate::app::{filename_components, ReplacableSelection};
 use crate::app_util;
+use crate::layouts::{ReplaceWith, Replaceable};
 use crate::{layouts::CheckboxStates, metadata::DateType};
 use std::{
     io::{ErrorKind, Read, Write},
@@ -20,6 +21,7 @@ pub fn write_created_directory_to_save_file(
     home_directory_path: &PathBuf,
     directory_path: PathBuf,
     checkbox_states: CheckboxStates,
+    replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
     order_of_filename_components: &Vec<String>,
     custom_filename: &str,
@@ -36,6 +38,7 @@ pub fn write_created_directory_to_save_file(
                 &mut new_directory_data,
                 dir_path,
                 checkbox_states,
+                replaceables,
                 date_type,
                 order_of_filename_components,
                 custom_filename,
@@ -51,6 +54,7 @@ pub fn write_created_directory_to_save_file(
                 &mut file_content,
                 dir_path,
                 checkbox_states,
+                replaceables,
                 date_type,
                 order_of_filename_components,
                 custom_filename,
@@ -97,7 +101,13 @@ pub fn remove_directory_from_file(
 pub fn read_directory_rules_from_file(
     home_directory_path: &PathBuf,
     directory_path: &PathBuf,
-) -> std::io::Result<(CheckboxStates, Option<DateType>, Vec<String>, String)> {
+) -> std::io::Result<(
+    CheckboxStates,
+    Option<DateType>,
+    Vec<ReplacableSelection>,
+    Vec<String>,
+    String,
+)> {
     match std::fs::File::options()
         .read(true)
         .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
@@ -108,11 +118,13 @@ pub fn read_directory_rules_from_file(
             if let Some(list_of_rules) = parse_file_result(buffer.as_str(), directory_path) {
                 let checkbox_states = parse_rules(&list_of_rules);
                 let date_type = parse_date_type(&list_of_rules);
+                let replaceables = parse_replace_rules(&list_of_rules);
                 let order_of_filename_components = parse_filename_components(&list_of_rules);
                 let custom_filename = parse_custom_filename(&list_of_rules);
                 return Ok((
                     checkbox_states,
                     date_type,
+                    replaceables,
                     order_of_filename_components,
                     custom_filename,
                 ));
@@ -148,6 +160,37 @@ pub fn read_save_file_content(
         }
     }
     Ok(())
+}
+
+fn parse_replace_rules(list_of_rules: &Vec<&str>) -> Vec<ReplacableSelection> {
+    let mut replaceables: Vec<ReplacableSelection> = Vec::new();
+    let mut replaceable_rule = None;
+    let mut replace_with_rule = None;
+    for rule in list_of_rules {
+        match *rule {
+            "Dash" => replaceable_rule = Some(Replaceable::Dash),
+            "Space" => replaceable_rule = Some(Replaceable::Space),
+            "Comma" => replaceable_rule = Some(Replaceable::Comma),
+            _ => {}
+        };
+        match *rule {
+            "Nothing" => replace_with_rule = Some(ReplaceWith::Nothing),
+            "Underscore" => replace_with_rule = Some(ReplaceWith::Underscore),
+            _ => {}
+        };
+
+        if let Some(replaceable) = replaceable_rule {
+            if let Some(replace_with) = replace_with_rule {
+                replaceables.push(ReplacableSelection::from(
+                    Some(replaceable),
+                    Some(replace_with),
+                ));
+                replaceable_rule = None;
+                replace_with_rule = None;
+            }
+        }
+    }
+    replaceables
 }
 
 fn parse_rules(list_of_rules: &Vec<&str>) -> CheckboxStates {
@@ -240,6 +283,7 @@ fn write_directory_data_to_string(
     file_content: &mut String,
     dir_path: &str,
     checkbox_states: CheckboxStates,
+    replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
     order_of_filename_components: &Vec<String>,
     custom_filename: &str,
@@ -250,6 +294,7 @@ fn write_directory_data_to_string(
     write_value_to_file_content(file_content, checkbox_states.organize_by_date);
     write_value_to_file_content(file_content, checkbox_states.convert_uppercase_to_lowercase);
     write_value_to_file_content(file_content, checkbox_states.replace_character);
+
     write_value_to_file_content(file_content, checkbox_states.use_only_ascii);
     write_value_to_file_content(
         file_content,
@@ -268,12 +313,36 @@ fn write_directory_data_to_string(
     } else {
         file_content.push_str("None");
     }
+    write_replace_rules_to_file(file_content, replaceables);
     write_order_of_filename_components(file_content, order_of_filename_components);
     if order_of_filename_components.contains(&String::from(filename_components::CUSTOM_FILE_NAME)) {
-        file_content.push_str(",");
+        file_content.push(',');
         file_content.push_str(custom_filename);
     }
     file_content.push_str("\n");
+}
+
+fn write_replace_rules_to_file(file_content: &mut String, replaceables: &Vec<ReplacableSelection>) {
+    for replaceable in replaceables {
+        if let Some(replace) = replaceable.get_replaceable_selected() {
+            if let Some(replace_with) = replaceable.get_replace_with_selected() {
+                file_content.push(',');
+                let replaceable_character = match replace {
+                    Replaceable::Dash => "Dash",
+                    Replaceable::Space => "Space",
+                    Replaceable::Comma => "Comma",
+                };
+                file_content.push_str(replaceable_character);
+                file_content.push(',');
+
+                let replace_with_character = match replace_with {
+                    ReplaceWith::Nothing => "Nothing",
+                    ReplaceWith::Underscore => "Underscore",
+                };
+                file_content.push_str(replace_with_character);
+            }
+        }
+    }
 }
 
 fn write_order_of_filename_components(
