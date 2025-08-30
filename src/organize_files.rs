@@ -618,18 +618,18 @@ pub fn rename_file_name(rename_data: RenameData) {
 
     if rename_data.checkbox_states.use_only_ascii {
         if !custom_name.is_ascii() {
-            custom_name = replace_non_ascii(custom_name.clone());
+            custom_name = replace_non_ascii(custom_name);
         }
         if !date.is_ascii() {
-            date = replace_non_ascii(date.clone());
+            date = replace_non_ascii(date);
         }
 
         if !directory_name.is_ascii() {
-            directory_name = replace_non_ascii(directory_name.clone());
+            directory_name = replace_non_ascii(directory_name);
         }
 
         if !original_name.is_ascii() {
-            original_name = replace_non_ascii(original_name.clone());
+            original_name = replace_non_ascii(original_name);
         }
     }
     if let Some(last) = rename_data.file_name_component_order.last() {
@@ -674,7 +674,7 @@ fn replace_characters_by_rules(
     }
 }
 
-fn replace_character_with(
+pub fn replace_character_with(
     text_component: &mut String,
     replace: Replaceable,
     replace_with: ReplaceWith,
@@ -716,7 +716,7 @@ pub fn get_file_name_without_file_type(file_name: &str) -> String {
     splitted.concat()
 }
 
-fn replace_non_ascii(text: String) -> String {
+pub fn replace_non_ascii(text: String) -> String {
     let mut replaced = String::new();
     for character in text.chars() {
         let mut changed_character = character;

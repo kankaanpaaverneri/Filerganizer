@@ -339,6 +339,7 @@ impl App {
                 Task::none()
             }
             Message::CreateDirectoryWithSelectedFiles => {
+                self.rename_directory_name_based_on_rules();
                 if let Err(error) = self.is_directory_creation_valid(SAVE_FILE_NAME) {
                     self.error = error.to_string();
                     return Task::none();
@@ -1755,6 +1756,30 @@ impl App {
             }
         }
         None
+    }
+
+    fn rename_directory_name_based_on_rules(&mut self) {
+        if self.checkbox_states.use_only_ascii {
+            self.new_directory_name =
+                organize_files::replace_non_ascii(self.new_directory_name.to_owned());
+        }
+
+        if self.checkbox_states.convert_uppercase_to_lowercase {
+            self.new_directory_name = self.new_directory_name.to_lowercase();
+        }
+        if self.checkbox_states.replace_character {
+            for replaceable in &self.replaceables {
+                if let Some(replace) = replaceable.get_replaceable_selected() {
+                    if let Some(replace_with) = replaceable.get_replace_with_selected() {
+                        organize_files::replace_character_with(
+                            &mut self.new_directory_name,
+                            replace,
+                            replace_with,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
