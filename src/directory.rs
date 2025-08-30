@@ -33,6 +33,10 @@ impl Directory {
         }
     }
 
+    pub fn insert_empty_files(&mut self) {
+        self.files = Some(BTreeMap::new());
+    }
+
     pub fn insert_directory(&mut self, new_directory: Directory, directory_name: &str) {
         if let Some(mut directories) = self.directories.take() {
             directories.insert(OsString::from(directory_name), new_directory);

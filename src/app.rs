@@ -1590,6 +1590,7 @@ impl App {
             path.pop();
             if let Some(dir) = self.root.get_mut_directory_by_path(&path) {
                 if let Some(mut files) = dir.get_mut_files().take() {
+                    dir.insert_empty_files(); // For putting Some in to the dir files after .take()
                     let mut in_file_boundaries = false;
                     let initial_path = PathBuf::from(&self.multiple_selection.file_name);
                     let mut files_selected = BTreeMap::new();
@@ -1976,7 +1977,6 @@ mod tests {
         assert_eq!(app.path_input, String::from(""));
         app.update_path_input();
         assert_eq!(app.path_input, String::from("/home/verneri/rust"));
-        //fn update_path_input(&mut self) {
     }
 
     #[test]
