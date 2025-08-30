@@ -1,6 +1,6 @@
 use crate::app::{filename_components, ReplacableSelection};
 use crate::app_util;
-use crate::layouts::{ReplaceWith, Replaceable};
+use crate::layouts::{IndexPosition, ReplaceWith, Replaceable};
 use crate::{layouts::CheckboxStates, metadata::DateType};
 use std::{
     io::{ErrorKind, Read, Write},
@@ -23,6 +23,7 @@ pub fn write_created_directory_to_save_file(
     checkbox_states: CheckboxStates,
     replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
+    index_position: Option<IndexPosition>,
     order_of_filename_components: &Vec<String>,
     custom_filename: &str,
 ) -> std::io::Result<()> {
@@ -40,6 +41,7 @@ pub fn write_created_directory_to_save_file(
                 checkbox_states,
                 replaceables,
                 date_type,
+                index_position,
                 order_of_filename_components,
                 custom_filename,
             );
@@ -56,6 +58,7 @@ pub fn write_created_directory_to_save_file(
                 checkbox_states,
                 replaceables,
                 date_type,
+                index_position,
                 order_of_filename_components,
                 custom_filename,
             );
@@ -104,6 +107,7 @@ pub fn read_directory_rules_from_file(
 ) -> std::io::Result<(
     CheckboxStates,
     Option<DateType>,
+    Option<IndexPosition>,
     Vec<ReplacableSelection>,
     Vec<String>,
     String,
@@ -118,12 +122,14 @@ pub fn read_directory_rules_from_file(
             if let Some(list_of_rules) = parse_file_result(buffer.as_str(), directory_path) {
                 let checkbox_states = parse_rules(&list_of_rules);
                 let date_type = parse_date_type(&list_of_rules);
+                let index_position = parse_index_position_rules(&list_of_rules);
                 let replaceables = parse_replace_rules(&list_of_rules);
                 let order_of_filename_components = parse_filename_components(&list_of_rules);
                 let custom_filename = parse_custom_filename(&list_of_rules);
                 return Ok((
                     checkbox_states,
                     date_type,
+                    index_position,
                     replaceables,
                     order_of_filename_components,
                     custom_filename,
@@ -160,6 +166,18 @@ pub fn read_save_file_content(
         }
     }
     Ok(())
+}
+
+fn parse_index_position_rules(list_of_rules: &Vec<&str>) -> Option<IndexPosition> {
+    let mut index_position = None;
+    for rule in list_of_rules {
+        match *rule {
+            "Before" => index_position = Some(IndexPosition::Before),
+            "After" => index_position = Some(IndexPosition::After),
+            _ => {}
+        }
+    }
+    index_position
 }
 
 fn parse_replace_rules(list_of_rules: &Vec<&str>) -> Vec<ReplacableSelection> {
@@ -285,6 +303,7 @@ fn write_directory_data_to_string(
     checkbox_states: CheckboxStates,
     replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
+    index_position: Option<IndexPosition>,
     order_of_filename_components: &Vec<String>,
     custom_filename: &str,
 ) {
@@ -313,6 +332,7 @@ fn write_directory_data_to_string(
     } else {
         file_content.push_str("None");
     }
+    write_index_position(file_content, index_position);
     write_replace_rules_to_file(file_content, replaceables);
     write_order_of_filename_components(file_content, order_of_filename_components);
     if order_of_filename_components.contains(&String::from(filename_components::CUSTOM_FILE_NAME)) {
@@ -320,6 +340,16 @@ fn write_directory_data_to_string(
         file_content.push_str(custom_filename);
     }
     file_content.push_str("\n");
+}
+
+fn write_index_position(file_content: &mut String, index_position: Option<IndexPosition>) {
+    if let Some(index_position) = index_position {
+        let position = match index_position {
+            IndexPosition::After => ",After",
+            IndexPosition::Before => ",Before",
+        };
+        file_content.push_str(position);
+    }
 }
 
 fn write_replace_rules_to_file(file_content: &mut String, replaceables: &Vec<ReplacableSelection>) {

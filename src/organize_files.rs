@@ -12,7 +12,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct OrganizingData<'a> {
     files_selected: BTreeMap<OsString, File>,
-    checkbox_states: CheckboxStates,
+    checkbox_states: &'a CheckboxStates,
     replaceables: &'a Vec<ReplacableSelection>,
     directory_name: &'a str,
     custom_file_name: &'a str,
@@ -24,7 +24,7 @@ pub struct OrganizingData<'a> {
 impl<'a> OrganizingData<'a> {
     pub fn new(
         files_selected: BTreeMap<OsString, File>,
-        checkbox_states: CheckboxStates,
+        checkbox_states: &'a CheckboxStates,
         replaceables: &'a Vec<ReplacableSelection>,
         directory_name: &'a str,
         custom_file_name: &'a str,
@@ -187,7 +187,7 @@ fn organize_files_by_file_type_and_date(
             if let Some(files_by_filetype) = dir.get_mut_files().take() {
                 let new_data = OrganizingData::new(
                     files_by_filetype,
-                    data.checkbox_states.clone(),
+                    &data.checkbox_states,
                     data.replaceables,
                     data.directory_name,
                     data.custom_file_name,

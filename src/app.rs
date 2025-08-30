@@ -32,6 +32,8 @@ pub struct App {
 
     directories_selected: Vec<PathBuf>,
     directory_selected: Option<PathBuf>,
+    selected_directory_rules: Option<SelectedDirectoryRules>,
+
     multiple_selection: MultipleSelection,
     files_selected: BTreeMap<OsString, File>,
     new_directory_name: String,
@@ -46,6 +48,61 @@ pub struct App {
     files_organized: BTreeMap<OsString, File>,
     files_have_been_organized: bool,
 }
+
+#[derive(Debug)]
+pub struct SelectedDirectoryRules {
+    checkbox_states: CheckboxStates,
+    replaceables: Vec<ReplacableSelection>,
+    date_type_selected: Option<DateType>,
+    order_of_filename_components: Vec<String>,
+    index_position: Option<IndexPosition>,
+    filename_input: String,
+}
+
+impl SelectedDirectoryRules {
+    fn from(
+        checkbox_states: CheckboxStates,
+        replaceables: Vec<ReplacableSelection>,
+        date_type_selected: Option<DateType>,
+        order_of_filename_components: Vec<String>,
+        index_position: Option<IndexPosition>,
+        filename_input: String,
+    ) -> Self {
+        Self {
+            checkbox_states,
+            replaceables,
+            date_type_selected,
+            order_of_filename_components,
+            index_position,
+            filename_input,
+        }
+    }
+
+    pub fn get_checkbox_states(&self) -> &CheckboxStates {
+        &self.checkbox_states
+    }
+
+    pub fn get_replaceables(&self) -> &Vec<ReplacableSelection> {
+        &self.replaceables
+    }
+
+    pub fn get_date_type_selected(&self) -> &Option<DateType> {
+        &self.date_type_selected
+    }
+
+    pub fn get_order_of_filename_components(&self) -> &Vec<String> {
+        &self.order_of_filename_components
+    }
+
+    pub fn get_index_position(&self) -> &Option<IndexPosition> {
+        &self.index_position
+    }
+
+    pub fn get_custom_filename(&self) -> &str {
+        &self.filename_input.as_str()
+    }
+}
+
 #[derive(Debug)]
 pub struct ReplacableSelection {
     replaceable_selected: Option<Replaceable>,
@@ -112,6 +169,7 @@ impl Default for App {
 
             directories_selected: Vec::new(),
             directory_selected: None,
+            selected_directory_rules: None,
             multiple_selection: MultipleSelection::new(),
             files_selected: BTreeMap::new(),
             new_directory_name: String::new(),
@@ -264,6 +322,7 @@ impl App {
                 Task::none()
             }
             Message::SelectDirectory(path_to_directory) => {
+                self.selected_directory_rules = None;
                 match self.directory_selected {
                     Some(ref current_selected) => {
                         if *current_selected == path_to_directory {
@@ -273,6 +332,31 @@ impl App {
                         }
                     }
                     None => self.directory_selected = Some(path_to_directory),
+                }
+                if let Some(ref current_selected) = self.directory_selected {
+                    match save_directory::read_directory_rules_from_file(
+                        &self.home_directory_path,
+                        &current_selected,
+                    ) {
+                        Ok((
+                            checkbox_states,
+                            date_type,
+                            index_position,
+                            replaceables,
+                            order_of_filename_components,
+                            custom_filename,
+                        )) => {
+                            self.selected_directory_rules = Some(SelectedDirectoryRules::from(
+                                checkbox_states,
+                                replaceables,
+                                date_type,
+                                order_of_filename_components,
+                                index_position,
+                                custom_filename,
+                            ));
+                        }
+                        Err(_) => {}
+                    }
                 }
                 return Task::none();
             }
@@ -351,27 +435,7 @@ impl App {
                 }
 
                 match self.create_directory_with_selected_files(files_selected) {
-                    Ok(_) => {
-                        let mut path_to_directory = PathBuf::from(&self.path);
-                        path_to_directory.push(&self.new_directory_name);
-
-                        match save_directory::write_created_directory_to_save_file(
-                            &self.home_directory_path,
-                            path_to_directory,
-                            self.checkbox_states.clone(),
-                            &self.replaceables,
-                            self.date_type_selected,
-                            &self.order_of_filename_components,
-                            &self.filename_input,
-                        ) {
-                            Ok(_) => {
-                                self.new_directory_name.clear();
-                            }
-                            Err(error) => {
-                                self.error = error.to_string();
-                            }
-                        }
-                    }
+                    Ok(_) => {}
                     Err(error) => self.error = error.to_string(),
                 }
 
@@ -548,6 +612,26 @@ impl App {
                 if let Err(error) = filesystem::move_files_organized(&self.files_organized) {
                     self.error = error.to_string();
                 }
+                let mut path_to_directory = PathBuf::from(&self.path);
+                path_to_directory.push(&self.new_directory_name);
+
+                match save_directory::write_created_directory_to_save_file(
+                    &self.home_directory_path,
+                    path_to_directory,
+                    self.checkbox_states.clone(),
+                    &self.replaceables,
+                    self.date_type_selected,
+                    self.index_position,
+                    &self.order_of_filename_components,
+                    &self.filename_input,
+                ) {
+                    Ok(_) => {
+                        self.new_directory_name.clear();
+                    }
+                    Err(error) => {
+                        self.error = error.to_string();
+                    }
+                }
                 self.files_organized.clear();
                 self.files_have_been_organized = true;
                 self.init_app_data();
@@ -657,6 +741,10 @@ impl App {
 
     pub fn get_replaceables(&self) -> &Vec<ReplacableSelection> {
         &self.replaceables
+    }
+
+    pub fn get_selected_directory_rules(&self) -> &Option<SelectedDirectoryRules> {
+        &self.selected_directory_rules
     }
 
     fn switch_layout(&mut self, layout: &Layout) -> std::io::Result<()> {
@@ -1076,7 +1164,7 @@ impl App {
 
             let data = organize_files::OrganizingData::new(
                 files_selected,
-                self.checkbox_states.clone(),
+                &self.checkbox_states,
                 &self.replaceables,
                 &self.new_directory_name,
                 &self.filename_input,
@@ -1525,7 +1613,6 @@ impl App {
                             }
                         }
                     } else {
-                        // Normal for loop
                         for (key, value) in files {
                             if initial_path.ends_with(&key) {
                                 in_file_boundaries = true;
@@ -1568,6 +1655,7 @@ impl App {
                 let (
                     checkbox_states,
                     date_type,
+                    index_position,
                     replaceables,
                     order_of_filename_components,
                     custom_filename,
@@ -1583,13 +1671,13 @@ impl App {
                         selected_dir,
                         organize_files::OrganizingData::new(
                             self.files_selected.clone(),
-                            checkbox_states,
+                            &checkbox_states,
                             &replaceables,
                             directory_name,
                             &custom_filename,
                             &order_of_filename_components,
                             date_type,
-                            self.index_position,
+                            index_position,
                         ),
                     )?;
                     self.files_selected.clear();

@@ -19,9 +19,10 @@ use iced::{
 use chrono::{DateTime, Local};
 
 use crate::{
-    app::{filename_components, App, Message},
+    app::{filename_components, App, Message, ReplacableSelection, SelectedDirectoryRules},
     directory::Directory,
     metadata::{DateType, Metadata},
+    organize_files,
 };
 
 #[derive(Debug, Clone, PartialEq, Copy, Eq)]
@@ -427,7 +428,17 @@ impl Layout {
             converted = converted.to_lowercase();
         }
         if app.get_checkbox_states().replace_character {
-            converted = converted.replace(" ", "_");
+            for replaceable in app.get_replaceables() {
+                if let Some(replace) = replaceable.get_replaceable_selected() {
+                    if let Some(replace_with) = replaceable.get_replace_with_selected() {
+                        organize_files::replace_character_with(
+                            &mut converted,
+                            replace,
+                            replace_with,
+                        );
+                    }
+                }
+            }
         }
         converted
     }
@@ -440,7 +451,7 @@ impl Layout {
             column = column.push(text("Order of filename components example"));
         }
         for (i, component) in order_of_filename_components.iter().enumerate() {
-            let example_component: String = match component.as_str() {
+            let example_component = match component.as_str() {
                 filename_components::DATE => {
                     let current_date: DateTime<Local> = Local::now();
                     let formatted = current_date.format("%Y%m%d");
@@ -511,7 +522,155 @@ impl Layout {
                                 .on_press(Message::InsertFilesToSelectedDirectory),
                         );
                     }
+                    if let Some(rules) = app.get_selected_directory_rules() {
+                        column = column.push(column![
+                            text("Rules for selected directory"),
+                            self.selected_directory_rules(rules).padding(10)
+                        ])
+                    }
                     column = column.padding(10).spacing(10);
+                }
+            }
+        }
+        column
+    }
+
+    fn selected_directory_rules<'a>(
+        &'a self,
+        rules: &'a SelectedDirectoryRules,
+    ) -> Column<'a, Message> {
+        let mut column = Column::new();
+        let checkbox_states = rules.get_checkbox_states();
+        let replaceables = rules.get_replaceables();
+        column =
+            column.push(self.insert_checkbox_states_for_directory(checkbox_states, replaceables));
+        let date_type_selected = rules.get_date_type_selected();
+        column = column.push(self.insert_date_type_selected_for_directory(date_type_selected));
+        let index_position = rules.get_index_position();
+        column = column.push(self.insert_index_position_for_directory(index_position));
+        let order_of_filename_components = rules.get_order_of_filename_components();
+        column = column.push(
+            self.insert_order_of_filename_components_for_directory(order_of_filename_components),
+        );
+        let custom_filename = rules.get_custom_filename();
+        column = column.push(self.insert_custom_filename(custom_filename));
+        column
+    }
+
+    fn insert_custom_filename<'a>(&'a self, custom_filename: &'a str) -> Column<'a, Message> {
+        let mut column = Column::new();
+        column = column.push(row![text("Custom filename: "), text(custom_filename)]);
+
+        column
+    }
+
+    fn insert_order_of_filename_components_for_directory<'a>(
+        &'a self,
+        order_of_filename_components: &'a Vec<String>,
+    ) -> Column<'a, Message> {
+        let mut column = Column::new();
+        column = column.push(text("Order of filename components: "));
+        let mut row = Row::new();
+        for component in order_of_filename_components {
+            row = row.push(text(component));
+        }
+        row = row.spacing(10);
+        column = column.push(row);
+        column
+    }
+
+    fn insert_index_position_for_directory(
+        &self,
+        index_position: &Option<IndexPosition>,
+    ) -> Column<Message> {
+        let mut column = Column::new();
+        if let Some(index_position) = index_position {
+            let index_position_text = match index_position {
+                IndexPosition::After => "After",
+                IndexPosition::Before => "Before",
+            };
+            column = column.push(row![text("Index position: "), text(index_position_text)]);
+        }
+        column
+    }
+
+    fn insert_date_type_selected_for_directory(
+        &self,
+        date_type_selected: &Option<DateType>,
+    ) -> Column<Message> {
+        let mut column = Column::new();
+        if let Some(date_type) = date_type_selected {
+            let date_type_text = match date_type {
+                DateType::Created => "Created",
+                DateType::Accessed => "Accessed",
+                DateType::Modified => "Modified",
+            };
+            column = column.push(row![text("Date type: "), text(date_type_text)]);
+        }
+        column
+    }
+
+    fn insert_checkbox_states_for_directory(
+        &self,
+        checkbox_states: &CheckboxStates,
+        replaceables: &Vec<ReplacableSelection>,
+    ) -> Column<Message> {
+        let mut column = Column::new();
+        let checkbox_state_array: [&bool; 9] = [
+            &checkbox_states.organize_by_filetype,
+            &checkbox_states.organize_by_date,
+            &checkbox_states.convert_uppercase_to_lowercase,
+            &checkbox_states.replace_character,
+            &checkbox_states.use_only_ascii,
+            &checkbox_states.insert_directory_name_to_file_name,
+            &checkbox_states.insert_date_to_file_name,
+            &checkbox_states.remove_original_file_name,
+            &checkbox_states.add_custom_name,
+        ];
+        let checkbox_text: [&str; 9] = [
+            "Organize by filetype",
+            "Organize by date",
+            "Convert uppercase to lowercase",
+            "Replace character",
+            "Use only ascii",
+            "Insert directory name to filename",
+            "Insert date to filename",
+            "Remove original filename",
+            "Add a custom name",
+        ];
+        for (i, checkbox_state) in checkbox_state_array.iter().enumerate() {
+            if **checkbox_state {
+                column = column.push(text(checkbox_text[i]));
+                if i == 3 {
+                    column = column.push(self.insert_replaceable_rules(replaceables).padding(10));
+                }
+            }
+        }
+        column
+    }
+
+    fn insert_replaceable_rules(&self, replaceables: &Vec<ReplacableSelection>) -> Column<Message> {
+        let mut column = Column::new();
+        for replaceable in replaceables {
+            if let Some(replace) = replaceable.get_replaceable_selected() {
+                if let Some(replace_with) = replaceable.get_replace_with_selected() {
+                    let replace_text = match replace {
+                        Replaceable::Dash => "Dash",
+                        Replaceable::Space => "Space",
+                        Replaceable::Comma => "Comma",
+                    };
+
+                    let replace_with_text = match replace_with {
+                        ReplaceWith::Nothing => "Nothing",
+                        ReplaceWith::Underscore => "Underscore",
+                    };
+                    let row = row![
+                        text!("Replace "),
+                        text(replace_text),
+                        text(" With "),
+                        text(replace_with_text)
+                    ];
+                    column = column.push(row);
                 }
             }
         }
