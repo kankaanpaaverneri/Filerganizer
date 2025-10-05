@@ -5,10 +5,10 @@ use std::{
 };
 
 use iced::{
-    alignment::{Horizontal, Vertical},
+    alignment::Vertical,
     widget::{
         button, checkbox, column, container, mouse_area, pick_list, radio, row, scrollable, text,
-        text_input, Column, Container, Row,
+        text_input, Button, Column, Container, Row,
     },
     Alignment::Center,
     Background, Color,
@@ -133,12 +133,17 @@ pub enum Layout {
     DirectoryOrganizingLayout,
 }
 
+#[derive(Debug, Clone)]
+pub enum FileSelectedLocation {
+    FromDirectory(PathBuf),
+    FromFilesSelected(PathBuf),
+}
+
 impl Layout {
     pub fn get_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
         match self {
             Layout::Main => self.main_layout(app),
-            Layout::DirectorySelectionLayout => self.directory_tree_layout(app),
-            Layout::DirectoryOrganizingLayout => self.directory_organizing_layout(app),
+            _ => self.directory_tree_layout(app),
         }
     }
 
@@ -172,26 +177,61 @@ impl Layout {
 
     fn directory_tree_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
         if let Some(path) = app.get_path().to_str() {
+            let mut main_row = Row::new();
+            let mut header_column = Column::new();
+            header_column = header_column.push(
+                button("Main Menu")
+                    .on_press(Message::SwitchLayout(Layout::Main))
+                    .style(directory_button_style),
+            );
+            let mut header_column_row = Row::new();
+            main_row = main_row.push(self.display_directory_contents(app).spacing(5));
+            if let Layout::DirectoryOrganizingLayout = self {
+                header_column_row = header_column_row.push(self.insert_search_bar(app, path));
+                header_column_row = header_column_row
+                    .push(self.insert_directory_view_buttons(app))
+                    .spacing(5);
+                if !app.get_files_organized().is_empty() {
+                    header_column_row =
+                        header_column_row.push(button("Commit").on_press(Message::Commit))
+                }
+                main_row = main_row.push(
+                    scrollable(
+                        column![
+                            self.selected_directory_option(app),
+                            self.insert_files_selected(app),
+                        ]
+                        .padding(10),
+                    )
+                    .width(FillPortion(2))
+                    .spacing(5),
+                );
+            }
+            if let Layout::DirectorySelectionLayout = self {
+                header_column_row = header_column_row.push(self.insert_search_bar(app, path));
+                header_column_row = header_column_row
+                    .push(self.insert_directory_view_buttons(app))
+                    .spacing(5);
+                header_column_row = header_column_row.push(
+                    button("Show Directory rule options")
+                        .style(directory_button_style)
+                        .on_press(Message::SelectPath),
+                );
+            }
+            header_column = header_column.push(header_column_row);
+
             container(
                 column![
+                    header_column,
                     column![
-                        button("Main Menu")
-                            .on_press(Message::SwitchLayout(Layout::Main))
-                            .style(directory_button_style),
-                        row![
-                            self.insert_search_bar(app, path),
-                            self.insert_directory_view_buttons(app),
-                            row![button("Select this directory").on_press(Message::SelectPath)]
-                        ]
-                        .spacing(10),
                         self.insert_external_storage(app),
                         button("Previous")
-                            .on_press(Message::MoveUpDirectory)
+                            .on_press(Message::DropDownDirectory(PathBuf::from(path)))
                             .style(directory_button_style),
                         text(app.get_error()),
                     ]
                     .spacing(5),
-                    self.display_directory_contents(app).spacing(5),
+                    main_row
                 ]
                 .spacing(10)
                 .padding(10),
@@ -220,18 +260,6 @@ impl Layout {
             }
 
             container(column![
-                row![
-                    column![button("Back").on_press(Message::Back)]
-                        .width(FillPortion(1))
-                        .align_x(Horizontal::Left),
-                    column![text("Selected path: "), text(path)]
-                        .width(FillPortion(1))
-                        .align_x(Horizontal::Left),
-                    column![button("Commit").on_press(Message::Commit)]
-                        .width(FillPortion(1))
-                        .align_x(Horizontal::Right),
-                ]
-                .align_y(Vertical::Center),
                 column![text(app.get_error())],
                 select_all_files_button,
                 row![
@@ -681,7 +709,7 @@ impl Layout {
         let mut column = Column::new();
 
         let mut path_stack = PathBuf::from(app.get_path());
-        for (i, (key, _)) in app.get_files_selected().iter().enumerate() {
+        for (i, (key, file)) in app.get_files_selected().iter().enumerate() {
             if i == 0 {
                 column = column.push(row![
                     text_input("New directory name", app.get_new_directory_input())
@@ -702,16 +730,23 @@ impl Layout {
             }
             if let Some(file_name) = key.to_str() {
                 path_stack.push(key);
-                column = column.push(
-                    mouse_area(
-                        button(file_name)
-                            .style(file_button_style)
-                            .on_press(Message::SelectFile(PathBuf::from(&path_stack))),
-                    )
-                    .on_right_press(
-                        Message::SelectMultipleFilesInFilesSelected(String::from(file_name), i),
-                    ),
-                );
+                if let Some(metadata) = file.get_metadata() {
+                    if let Some(origin_path) = metadata.get_origin_path() {
+                        column = column.push(
+                            mouse_area(button(file_name).style(file_button_style).on_press(
+                                Message::SelectFile(FileSelectedLocation::FromFilesSelected(
+                                    origin_path,
+                                )),
+                            ))
+                            .on_right_press(
+                                Message::SelectMultipleFilesInFilesSelected(
+                                    String::from(file_name),
+                                    i,
+                                ),
+                            ),
+                        );
+                    }
+                }
                 path_stack.pop();
             }
         }
@@ -721,72 +756,28 @@ impl Layout {
     }
 
     fn display_selected_path_content<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
-        let mut column = Column::new();
-        let root = app
-            .get_root_directory()
-            .get_directory_by_path(app.get_path());
-        let mut path = PathBuf::from(app.get_path());
-        let mut directories_selected_iter = app.get_directories_selected().iter();
+        let current_directory = app.get_root_directory();
+        let path = PathBuf::from(app.get_path());
+        let mut path_iter = path.iter();
+        path_iter.next();
 
-        column = self.display_directories_as_dropdown(
-            root,
-            &mut path,
-            &mut directories_selected_iter,
-            0,
-            column,
-        );
+        let mut column =
+            self.display_directories_as_dropdown(current_directory, path_iter, path.clone());
 
         // Display files in the root directory
-        column = self.append_files_to_column(root, &mut path, column, true);
+        //column = self.append_files_to_column(current_directory, &mut path, column, true);
         column = column.padding(10).spacing(10);
         column
     }
-    // For when all sub directories are already read
+
+    // For when directory has been selected
     fn display_directories_as_dropdown<'a>(
         &'a self,
         current_directory: &'a Directory,
-        path: &mut PathBuf,
-        directories_selected_iter: &mut std::slice::Iter<'_, PathBuf>,
-        call_count: usize,
-        mut column: Column<'a, Message>,
+        mut path_iter: Iter,
+        mut path_stack: PathBuf,
     ) -> Column<'a, Message> {
-        let next_dir_selected = directories_selected_iter.next();
-        let directories = current_directory.get_directories();
-
-        if let Some(directories) = directories {
-            for (key, subdir) in directories {
-                path.push(key);
-                if let Some(directory_name) = key.to_str() {
-                    let is_selected = next_dir_selected
-                        .and_then(|p| p.iter().last())
-                        .map_or(false, |last| last == key);
-                    let drop_down_icon = if is_selected { "|" } else { ">" };
-                    let button_row = self.create_directory_buttons_row(
-                        call_count,
-                        drop_down_icon,
-                        directory_name,
-                        path,
-                    );
-
-                    column = column.push(button_row);
-
-                    if is_selected {
-                        let mut new_column = Column::new();
-                        new_column = self.display_directories_as_dropdown(
-                            subdir,
-                            path,
-                            directories_selected_iter,
-                            call_count + 1,
-                            new_column,
-                        );
-                        new_column = new_column.padding(20).spacing(10);
-                        new_column = self.append_files_to_column(subdir, path, new_column, false);
-                        column = column.push(new_column);
-                    }
-                }
-                path.pop();
-            }
-        }
+        let mut column = Column::new();
 
         column
     }
@@ -799,30 +790,45 @@ impl Layout {
         files_selectable: bool,
     ) -> Column<'a, Message> {
         if let Some(files) = root.get_files() {
-            for (i, key) in files.keys().enumerate() {
+            for (i, (key, value)) in files.iter().enumerate() {
                 if let Some(file_name) = key.to_str() {
                     path.push(key);
-
-                    if files_selectable {
-                        column = column.push(
-                            mouse_area(
-                                button(file_name)
-                                    .style(file_button_style)
-                                    .width(Fill)
-                                    .on_press(Message::SelectFile(PathBuf::from(&path))),
-                            )
-                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path), i)),
-                        );
-                    } else {
-                        column = column.push(
-                            mouse_area(
-                                button(file_name)
-                                    .width(Fill)
-                                    .style(inner_file_button_style)
-                                    .on_press(Message::SelectFile(PathBuf::from(&path))),
-                            )
-                            .on_right_press(Message::SelectMultipleFiles(PathBuf::from(&path), i)),
-                        );
+                    if let Some(metadata) = value.get_metadata() {
+                        if let Some(origin_path) = metadata.get_origin_path() {
+                            if files_selectable {
+                                column = column.push(
+                                    mouse_area(
+                                        button(file_name)
+                                            .style(file_button_style)
+                                            .width(Fill)
+                                            .on_press(Message::SelectFile(
+                                                FileSelectedLocation::FromDirectory(
+                                                    path.to_owned(),
+                                                ),
+                                            )),
+                                    )
+                                    .on_right_press(
+                                        Message::SelectMultipleFiles(PathBuf::from(&path), i),
+                                    ),
+                                );
+                            } else {
+                                column = column.push(
+                                    mouse_area(
+                                        button(file_name)
+                                            .width(Fill)
+                                            .style(inner_file_button_style)
+                                            .on_press(Message::SelectFile(
+                                                FileSelectedLocation::FromDirectory(
+                                                    path.to_owned(),
+                                                ),
+                                            )),
+                                    )
+                                    .on_right_press(
+                                        Message::SelectMultipleFiles(PathBuf::from(&path), i),
+                                    ),
+                                );
+                            }
+                        }
                     }
 
                     path.pop();
@@ -906,14 +912,7 @@ impl Layout {
                 let mut path_iter = path.iter();
 
                 let mut path_stack = PathBuf::new();
-                if let Some(root) = path_iter.next() {
-                    path_stack.push(root);
-                    if let std::env::consts::OS = "windows" {
-                        if let Some(next) = path_iter.next() {
-                            path_stack.push(next);
-                        }
-                    }
-                }
+                skip_prefix_in_path(&mut path_iter, &mut path_stack);
                 let root_dir = app.get_root_directory();
                 return column![scrollable(self.insert_directory_content_as_dropdown(
                     root_dir,
@@ -923,6 +922,7 @@ impl Layout {
             }
         }
     }
+
     // For when all sub directories haven't been read
     fn insert_directory_content_as_dropdown<'a>(
         &'a self,
@@ -943,10 +943,11 @@ impl Layout {
                                 full_path_iter,
                                 path_stack,
                             );
-                            path_stack.pop();
                             new_column = new_column.padding(10);
                             new_column = new_column.spacing(10);
-                            new_column = self.insert_drop_down_files(selected, new_column);
+                            new_column =
+                                self.insert_drop_down_files(path_stack, selected, new_column);
+                            path_stack.pop();
                             column = column.push(new_column);
                         }
                     }
@@ -962,13 +963,76 @@ impl Layout {
         column
     }
 
-    fn display_directory_contents_as_list<'a>(&self, app: &'a App) -> Column<'a, Message> {
+    fn display_directory_contents_as_list<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+        let root_directory = app.get_root_directory();
+        let path = app.get_path();
+        let mut path_stack = PathBuf::new();
+        let column = self.insert_directory_contents_as_list(root_directory, &path, &mut path_stack);
+        column
+    }
+
+    fn insert_directory_contents_as_list<'a>(
+        &self,
+        current_directory: &'a Directory,
+        full_path: &PathBuf,
+        path_stack: &mut PathBuf,
+    ) -> Column<'a, Message> {
         let mut column = Column::new();
-        let current_directory = app
-            .get_root_directory()
-            .get_directory_by_path(app.get_path());
-        column = self.insert_directories(current_directory, column);
-        column = self.insert_files(current_directory, column);
+        let mut dir = current_directory;
+        for (i, component) in full_path.components().enumerate() {
+            match std::env::consts::OS {
+                "windows" => {
+                    if i <= 1 {
+                        path_stack.push(component.as_os_str());
+                        continue;
+                    }
+                }
+                "macos" | "linux" => {
+                    if i == 0 {
+                        path_stack.push(component.as_os_str());
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+            if let Some(directories) = dir.get_directories() {
+                for (key, value) in directories {
+                    if key == component.as_os_str() {
+                        path_stack.push(key);
+                        dir = value;
+                    }
+                }
+            }
+        }
+        if let Some(directories) = dir.get_directories() {
+            for key in directories.keys() {
+                path_stack.push(key);
+                if let Some(dir_name) = key.to_str() {
+                    column = column.push(
+                        button(dir_name)
+                            .style(directory_button_style)
+                            .on_press(Message::DropDownDirectory(path_stack.to_owned())),
+                    );
+                }
+                path_stack.pop();
+            }
+        }
+        if let Some(files) = dir.get_files() {
+            for (i, key) in files.keys().enumerate() {
+                path_stack.push(key);
+                if let Some(file_name) = key.to_str() {
+                    column = column.push(
+                        mouse_area(button(file_name).style(file_button_style).on_press(
+                            Message::SelectFile(FileSelectedLocation::FromDirectory(
+                                path_stack.to_owned(),
+                            )),
+                        ))
+                        .on_right_press(Message::SelectMultipleFiles(path_stack.to_owned(), i)),
+                    )
+                }
+                path_stack.pop();
+            }
+        }
         column
     }
 
@@ -1001,17 +1065,20 @@ impl Layout {
 
     fn insert_directories<'a>(
         &self,
-        root_dir: &'a Directory,
+        current_directory: &'a Directory,
+        path: &PathBuf,
         mut column: Column<'a, Message>,
     ) -> Column<'a, Message> {
-        if let Some(dirs) = root_dir.get_directories() {
+        if let Some(dirs) = current_directory.get_directories() {
             for (key, directory) in dirs.iter() {
+                let mut path = PathBuf::from(path);
+                path.push(key);
                 if let Some(dir_name) = key.to_str() {
                     if let Some(dir_metadata) = directory.get_metadata() {
                         let row = self.insert_formatted_metadata(dir_name, dir_metadata, 1);
                         column = column.push(
                             button(row)
-                                .on_press(Message::MoveDownDirectory(OsString::from(key)))
+                                .on_press(Message::DropDownDirectory(path))
                                 .padding(10)
                                 .style(directory_button_style),
                         );
@@ -1030,9 +1097,7 @@ impl Layout {
     ) -> Column<'a, Message> {
         let mut path_stack = PathBuf::from(&path_stack);
 
-        if let Some(_last) = path_stack.iter().last() {
-            path_stack.push(selected_directory_key);
-        }
+        path_stack.push(selected_directory_key);
 
         if let Some(key) = selected_directory_key.to_str() {
             column = column.push(
@@ -1049,16 +1114,31 @@ impl Layout {
     fn insert_files<'a>(
         &self,
         root_dir: &'a Directory,
+        file_path: &PathBuf,
         mut column: Column<'a, Message>,
     ) -> Column<'a, Message> {
         if let Some(files) = root_dir.get_files() {
+            let mut iterator = 0;
             for (key, file) in files.iter() {
                 if let Some(file_name) = key.to_str() {
+                    let mut file_path = PathBuf::from(file_path);
+                    file_path.push(file_name);
                     if let Some(file_metadata) = file.get_metadata() {
-                        let row = self.insert_formatted_metadata(file_name, file_metadata, 1);
-                        column = column.push(container(row).padding(10));
+                        let row = self
+                            .insert_formatted_metadata(file_name, file_metadata, 1)
+                            .padding(10);
+                        let button = Button::new(row).style(file_button_style).on_press(
+                            Message::SelectFile(FileSelectedLocation::FromDirectory(
+                                file_path.to_owned(),
+                            )),
+                        );
+                        column = column.push(
+                            mouse_area(button)
+                                .on_right_press(Message::SelectMultipleFiles(file_path, iterator)),
+                        );
                     }
                 }
+                iterator += 1;
             }
         }
         column
@@ -1066,14 +1146,29 @@ impl Layout {
 
     fn insert_drop_down_files<'a>(
         &'a self,
-        root_dir: &'a Directory,
+        current_path: &PathBuf,
+        selected: &'a Directory,
         mut column: Column<'a, Message>,
     ) -> Column<'a, Message> {
-        if let Some(files) = root_dir.get_files() {
-            for (key, _) in files.iter() {
+        if let Some(files) = selected.get_files() {
+            let mut iterator = 0;
+            for (key, value) in files.iter() {
                 if let Some(file_name) = key.to_str() {
-                    column = column.push(container(file_name).padding(5));
+                    let mut path_to_file = PathBuf::from(current_path);
+                    path_to_file.push(file_name);
+                    column = column.push(
+                        mouse_area(
+                            button(file_name)
+                                .style(file_button_style)
+                                .on_press(Message::SelectFile(FileSelectedLocation::FromDirectory(
+                                    path_to_file.to_owned(),
+                                )))
+                                .padding(5),
+                        )
+                        .on_right_press(Message::SelectMultipleFiles(path_to_file, iterator)),
+                    );
                 }
+                iterator += 1;
             }
         }
         column
@@ -1258,5 +1353,16 @@ fn get_file_button_background_color(alpha_value: f32) -> Color {
         g: 0.4,
         b: 0.4,
         a: alpha_value,
+    }
+}
+
+fn skip_prefix_in_path(path_iter: &mut Iter<'_>, path_stack: &mut PathBuf) {
+    if let Some(root) = path_iter.next() {
+        path_stack.push(root);
+        if let std::env::consts::OS = "windows" {
+            if let Some(next) = path_iter.next() {
+                path_stack.push(next);
+            }
+        }
     }
 }

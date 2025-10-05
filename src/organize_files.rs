@@ -7,7 +7,7 @@ use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{self, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct OrganizingData<'a> {
@@ -53,7 +53,6 @@ pub fn apply_rules_for_directory(
     data: OrganizingData,
 ) -> std::io::Result<()> {
     let mut new_directory = Directory::new(None);
-
     if data.checkbox_states.organize_by_filetype && data.checkbox_states.organize_by_date {
         organize_files_by_file_type_and_date(
             path_to_selected_directory,

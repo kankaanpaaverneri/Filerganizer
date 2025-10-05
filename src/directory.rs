@@ -149,6 +149,13 @@ impl Directory {
         0
     }
 
+    pub fn get_directory_count(&self) -> usize {
+        if let Some(directories) = &self.directories {
+            return directories.len();
+        }
+        0
+    }
+
     pub fn clear_directory_content(&mut self) {
         if let Some(directories) = self.directories.as_mut() {
             directories.clear();

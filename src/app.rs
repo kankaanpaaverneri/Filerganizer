@@ -1,6 +1,6 @@
 use iced::widget::Container;
 use iced::Task;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::io::ErrorKind;
@@ -11,7 +11,8 @@ use crate::directory::Directory;
 use crate::file::File;
 use crate::filesystem;
 use crate::layouts::{
-    CheckboxStates, DirectoryView, IndexPosition, Layout, ReplaceWith, Replaceable,
+    CheckboxStates, DirectoryView, FileSelectedLocation, IndexPosition, Layout, ReplaceWith,
+    Replaceable,
 };
 use crate::metadata::DateType;
 use crate::organize_files;
@@ -30,7 +31,7 @@ pub struct App {
     layout: Layout,
     directory_view: DirectoryView,
 
-    directories_selected: Vec<PathBuf>,
+    directories_selected: HashSet<PathBuf>,
     directory_selected: Option<PathBuf>,
     selected_directory_rules: Option<SelectedDirectoryRules>,
 
@@ -167,7 +168,7 @@ impl Default for App {
             layout: Layout::Main,
             directory_view: DirectoryView::List,
 
-            directories_selected: Vec::new(),
+            directories_selected: HashSet::new(),
             directory_selected: None,
             selected_directory_rules: None,
             multiple_selection: MultipleSelection::new(),
@@ -201,7 +202,7 @@ pub enum Message {
     SelectPath,
     ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
-    SelectFile(PathBuf),
+    SelectFile(FileSelectedLocation),
     SelectMultipleFiles(PathBuf, usize),
     SelectMultipleFilesInFilesSelected(String, usize),
     SelectAllFiles,
@@ -251,6 +252,7 @@ impl App {
                     self.error = error.to_string();
                 }
                 if is_submit {
+                    self.directories_selected.insert(self.path.clone());
                     if let Err(error) = self.switch_layout(&Layout::DirectoryOrganizingLayout) {
                         self.error = error.to_string();
                     }
@@ -294,31 +296,19 @@ impl App {
                 }
             },
             Message::SelectPath => match self.switch_layout(&Layout::DirectoryOrganizingLayout) {
-                Ok(_) => Task::none(),
+                Ok(_) => {
+                    self.directories_selected.insert(self.path.clone());
+                    Task::none()
+                }
                 Err(error) => {
                     self.error = error.to_string();
                     return Task::none();
                 }
             },
             Message::ViewDirectory(path_to_selected_directory) => {
-                if self.directories_selected.is_empty() {
-                    self.insert_path_to_directories_selected(path_to_selected_directory);
-                } else {
-                    if let Some(last_path) = self.directories_selected.last() {
-                        if app_util::are_paths_equal(last_path, &path_to_selected_directory) {
-                            self.insert_path_to_directories_selected(path_to_selected_directory);
-                        } else {
-                            while let Some(popped) = self.directories_selected.pop() {
-                                if app_util::are_paths_equal(&popped, &path_to_selected_directory) {
-                                    self.directories_selected.push(popped);
-                                    break;
-                                }
-                            }
-                            self.insert_path_to_directories_selected(path_to_selected_directory);
-                        }
-                    }
+                if let Err(error) = self.view_directory(path_to_selected_directory) {
+                    self.error = error.to_string();
                 }
-
                 Task::none()
             }
             Message::SelectDirectory(path_to_directory) => {
@@ -360,16 +350,51 @@ impl App {
                 }
                 return Task::none();
             }
-            Message::SelectFile(file_path) => {
-                let mut directory_path = PathBuf::from(&file_path);
-                directory_path.pop();
-                if let Some(directory) = self.root.get_mut_directory_by_path(&directory_path) {
-                    if let Some(files) = directory.get_mut_files() {
-                        if let Some(file_name) = file_path.iter().last() {
-                            if let Err(error) =
-                                app_util::select_file(files, &mut self.files_selected, file_name)
-                            {
-                                self.error = error.to_string();
+            Message::SelectFile(file_selected_location) => {
+                match file_selected_location {
+                    FileSelectedLocation::FromDirectory(path_to_file) => {
+                        let mut path_to_dir = PathBuf::from(&path_to_file);
+                        path_to_dir.pop();
+                        if let Some(directory) = self.root.get_mut_directory_by_path(&path_to_dir) {
+                            if let Some(files) = directory.get_mut_files() {
+                                if let Some(file_name) = path_to_file.iter().last() {
+                                    if self.files_selected.contains_key(file_name) {
+                                        self.error = std::io::Error::new(
+                                            ErrorKind::InvalidData,
+                                            "Duplicate file name found in files selected.",
+                                        )
+                                        .to_string();
+                                        return Task::none();
+                                    }
+                                    if let Some((key, value)) = files.remove_entry(file_name) {
+                                        self.files_selected.insert(key, value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FileSelectedLocation::FromFilesSelected(origin_path) => {
+                        let mut origin_dir_path = PathBuf::from(&origin_path);
+                        origin_dir_path.pop();
+                        if let Some(origin_directory) =
+                            self.root.get_mut_directory_by_path(&origin_dir_path)
+                        {
+                            if let Some(files) = origin_directory.get_mut_files() {
+                                if let Some(file_name) = origin_path.iter().last() {
+                                    if files.contains_key(file_name) {
+                                        self.error = std::io::Error::new(
+                                            ErrorKind::InvalidData,
+                                            "Duplicate file name found in files origin directory",
+                                        )
+                                        .to_string();
+                                        return Task::none();
+                                    }
+                                    if let Some((key, value)) =
+                                        self.files_selected.remove_entry(file_name)
+                                    {
+                                        files.insert(key, value);
+                                    }
+                                }
                             }
                         }
                     }
@@ -392,11 +417,15 @@ impl App {
                 Task::none()
             }
             Message::SelectAllFiles => {
-                if let Err(error) = self.is_duplicate_files_selected() {
-                    self.error = error.to_string();
-                    return Task::none();
-                }
                 if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
+                    if let Err(error) = app_util::is_duplicate_files_in_files_selected(
+                        selected_dir,
+                        &self.files_selected,
+                        &self.path,
+                    ) {
+                        self.error = error.to_string();
+                        return Task::none();
+                    }
                     if let Some(files) = selected_dir.get_mut_files() {
                         while let Some((key, value)) = files.pop_last() {
                             self.files_selected.insert(key, value);
@@ -435,7 +464,10 @@ impl App {
                 }
 
                 match self.create_directory_with_selected_files(files_selected) {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        // Refresh the directories in layouts
+                    }
+
                     Err(error) => self.error = error.to_string(),
                 }
 
@@ -695,7 +727,7 @@ impl App {
         &self.files_selected
     }
 
-    pub fn get_directories_selected(&self) -> &Vec<PathBuf> {
+    pub fn get_directories_selected(&self) -> &HashSet<PathBuf> {
         &self.directories_selected
     }
 
@@ -733,6 +765,10 @@ impl App {
 
     pub fn get_replaceable_options(&self) -> Vec<Replaceable> {
         self.replaceable_options.to_owned()
+    }
+
+    pub fn get_files_organized(&self) -> &BTreeMap<OsString, File> {
+        &self.files_organized
     }
 
     pub fn get_replace_with_options(&self) -> [ReplaceWith; 2] {
@@ -785,10 +821,10 @@ impl App {
                 Ok(())
             }
             Layout::DirectoryOrganizingLayout => {
-                let mut path = PathBuf::from(&self.path);
-                if let Err(error) = self.write_selected_directory_recursively(&mut path) {
-                    return Err(error);
-                }
+                //let mut path = PathBuf::from(&self.path);
+                //if let Err(error) = self.write_selected_directory_recursively(&mut path) {
+                //    return Err(error);
+                //}
                 self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
             }
@@ -935,14 +971,18 @@ impl App {
 
     fn insert_path_to_directories_selected(&mut self, path: PathBuf) {
         if self.directories_selected.contains(&path) {
-            while let Some(popped) = self.directories_selected.pop() {
-                if path == popped {
-                    break;
-                }
-            }
         } else {
-            self.directories_selected.push(path);
+            self.directories_selected.insert(path);
         }
+    }
+
+    fn view_directory(&mut self, path_to_selected_directory: PathBuf) -> std::io::Result<()> {
+        println!(
+            "path_to_selected_directory: {:?}",
+            path_to_selected_directory
+        );
+
+        Ok(())
     }
 
     fn select_drop_down_directory(
@@ -950,15 +990,13 @@ impl App {
         path_to_selected_directory: &PathBuf,
     ) -> std::io::Result<()> {
         if path_to_selected_directory == &self.path {
-            if let Some(dir) = self
-                .root
-                .get_mut_directory_by_path(path_to_selected_directory)
-            {
-                dir.clear_directory_content();
-                self.path.pop();
-            }
+            // If paths are equal then close
+            self.path.pop();
+            self.update_path_input();
         } else {
+            // If path_to_selected_directory_has less components than current path
             if path_to_selected_directory.components().count() < self.path.components().count() {
+                // Remove components from current path until current path is component count is less than selected
                 while self.path.pop() {
                     if self.path.components().count()
                         < path_to_selected_directory.components().count()
@@ -966,10 +1004,20 @@ impl App {
                         break;
                     }
                 }
+
                 self.update_path_input();
                 return Ok(());
             }
-            self.write_directory_to_tree(path_to_selected_directory)?;
+            // After that examine if directory has content
+            // Check directories selected
+            if !self
+                .directories_selected
+                .contains(path_to_selected_directory)
+            {
+                self.write_directory_to_tree(&path_to_selected_directory)?;
+                self.directories_selected
+                    .insert(path_to_selected_directory.to_owned());
+            }
             self.path = PathBuf::from(path_to_selected_directory);
         }
         self.update_path_input();
@@ -992,6 +1040,7 @@ impl App {
                 if let Err(error) = self.root.read_path(&path, selected_directory) {
                     return Err(error);
                 }
+                self.directories_selected.insert(path.to_owned());
                 Ok(())
             }
             None => {
@@ -1185,6 +1234,7 @@ impl App {
                 self.files_organized.clear();
                 return Err(error);
             }
+
             return Ok(());
         }
         Err(std::io::Error::new(
@@ -1216,11 +1266,7 @@ impl App {
                     date_type,
                     self.index_position,
                 ));
-                organize_files::create_destination_path(
-                    &self.path,
-                    vec![&renamed_file_name],
-                    &mut value,
-                );
+                organize_files::create_destination_path(&self.path, vec![], &mut value);
                 self.files_organized
                     .insert(OsString::from(&renamed_file_name), value.clone());
                 selected_dir.insert_file(OsString::from(renamed_file_name), value);
@@ -1357,7 +1403,7 @@ impl App {
 
         if let Some(last) = path_to_selected_directory.iter().last() {
             self.remove_directories_from_extracted_dir(last, path_to_parent_directory)?;
-            self.directories_selected.pop();
+            self.directories_selected.remove(path_to_selected_directory);
         }
 
         Ok(())
@@ -1559,10 +1605,36 @@ impl App {
                     }
                 }
             }
-            // Put files deselected_back to directory
-            if let Some(dir) = self.root.get_mut_directory_by_path(&self.path) {
+            // Check for errors
+            if let Err(error) = self.is_duplicate_files_selected() {
                 for (key, value) in files_deselected {
-                    dir.insert_file(key, value);
+                    self.files_selected.insert(key, value);
+                }
+                for (key, value) in files_unselected {
+                    self.files_selected.insert(key, value);
+                }
+                self.multiple_selection.file_name.clear();
+                self.multiple_selection.file_index = 0;
+                return Err(error);
+            }
+            // Put files deselected_back to directory
+            for file in files_deselected {
+                if let Some(metadata) = file.1.get_metadata() {
+                    if let Some(mut origin_path) = metadata.get_origin_path() {
+                        // Put files into their original path
+                        origin_path.pop();
+                        if let Some(original_dir) =
+                            self.root.get_mut_directory_by_path(&origin_path)
+                        {
+                            original_dir.insert_file(file.0, file.1);
+                        } else if let Some(current_selected_dir) =
+                            self.root.get_mut_directory_by_path(&self.path)
+                        {
+                            // If it can't be found. Place them in the current_path
+                            current_selected_dir.file_already_exists_in_directory(&file.0)?;
+                            current_selected_dir.insert_file(file.0, file.1);
+                        }
+                    }
                 }
             }
             // Put unselected files back to files selected
@@ -1632,6 +1704,22 @@ impl App {
                         }
                     }
 
+                    // Check for errors
+                    if let Err(error) = app_util::is_duplicate_files_in_files_selected(
+                        dir,
+                        &self.files_selected,
+                        &path,
+                    ) {
+                        for (key, value) in files_selected {
+                            dir.insert_file(key, value);
+                        }
+                        for (key, value) in files_unselected {
+                            dir.insert_file(key, value);
+                        }
+                        self.multiple_selection.file_name.clear();
+                        self.multiple_selection.file_index = 0;
+                        return Err(error);
+                    }
                     // Place unselected files back to directory
                     for (key, value) in files_unselected {
                         dir.insert_file(key, value);
@@ -1977,37 +2065,5 @@ mod tests {
         assert_eq!(app.path_input, String::from(""));
         app.update_path_input();
         assert_eq!(app.path_input, String::from("/home/verneri/rust"));
-    }
-
-    #[test]
-    fn test_insert_path_to_directories_selected() {
-        let mut app = App::default();
-        app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/rust"));
-        assert_eq!(
-            app.directories_selected,
-            vec![PathBuf::from("/home/verneri/rust")]
-        );
-        app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/content"));
-        assert_eq!(
-            app.directories_selected,
-            vec![
-                PathBuf::from("/home/verneri/rust"),
-                PathBuf::from("/home/verneri/content")
-            ]
-        );
-        app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/images"));
-        assert_eq!(
-            app.directories_selected,
-            vec![
-                PathBuf::from("/home/verneri/rust"),
-                PathBuf::from("/home/verneri/content"),
-                PathBuf::from("/home/verneri/images")
-            ]
-        );
-        app.insert_path_to_directories_selected(PathBuf::from("/home/verneri/content"));
-        assert_eq!(
-            app.directories_selected,
-            vec![PathBuf::from("/home/verneri/rust")]
-        );
     }
 }

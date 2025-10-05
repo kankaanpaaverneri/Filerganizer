@@ -71,6 +71,25 @@ pub fn select_file(
     Ok(())
 }
 
+pub fn is_duplicate_files_in_files_selected(
+    root_dir: &Directory,
+    files_selected: &BTreeMap<OsString, File>,
+    path: &PathBuf,
+) -> std::io::Result<()> {
+    let selected_dir = root_dir.get_directory_by_path(path);
+    if let Some(files) = selected_dir.get_files() {
+        for key in files.keys() {
+            if files_selected.contains_key(key) {
+                return Err(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    "Duplicate file found in files selected.",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn select_files_in_boundary(
     in_file_boundaries: bool,
     files_selected: &mut BTreeMap<OsString, File>,
