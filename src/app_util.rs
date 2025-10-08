@@ -82,9 +82,24 @@ pub fn is_duplicate_files_in_files_selected(
             if files_selected.contains_key(key) {
                 return Err(std::io::Error::new(
                     ErrorKind::InvalidData,
-                    "Duplicate file found in files selected.",
+                    "Duplicate file found in files selected and directory.",
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+pub fn is_duplicate_files_in_directory_selection(
+    files_selected: &BTreeMap<OsString, File>,
+    original_files_selected: &BTreeMap<OsString, File>,
+) -> std::io::Result<()> {
+    for key in original_files_selected.keys() {
+        if files_selected.contains_key(key) {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "Duplicate file name found in directory and files selected",
+            ));
         }
     }
     Ok(())

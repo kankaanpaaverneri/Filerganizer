@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::usize;
 
+use crate::app_util::convert_os_str_to_str;
 use crate::directory::Directory;
 use crate::file::File;
 use crate::filesystem;
@@ -203,7 +204,7 @@ pub enum Message {
     ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
     SelectFile(FileSelectedLocation),
-    SelectMultipleFiles(PathBuf, usize),
+    SelectMultipleFiles(usize, FileSelectedLocation),
     SelectMultipleFilesInFilesSelected(String, usize),
     SelectAllFiles,
     PutAllFilesBack,
@@ -401,21 +402,44 @@ impl App {
                 }
                 return Task::none();
             }
-            Message::SelectMultipleFiles(file_path, file_index) => {
-                let result = self.select_multiple_files_from_directory(&file_path, file_index);
-                if let Err(error) = result {
-                    self.error = error.to_string();
+            Message::SelectMultipleFiles(file_index, file_location) => {
+                match file_location {
+                    FileSelectedLocation::FromDirectory(path_to_file) => {
+                        // Logic for multiple selecting from directory tree
+                        if let Some(last) = path_to_file.iter().last() {
+                            if let Ok(last_str) = convert_os_str_to_str(last) {
+                                let mut path_to_directory = PathBuf::from(&path_to_file);
+                                path_to_directory.pop();
+                                if let Err(error) = self.select_multiple_files_from_directories(
+                                    last_str,
+                                    file_index,
+                                    &path_to_directory,
+                                ) {
+                                    self.error = error.to_string();
+                                }
+                            }
+                        }
+                    }
+                    FileSelectedLocation::FromFilesSelected(origin_path) => {
+                        // Logic for multiple selecting from files_selected
+                        if let Some(last) = origin_path.iter().last() {
+                            if let Ok(last_str) = convert_os_str_to_str(last) {
+                                let mut path_to_original_directory = PathBuf::from(&origin_path);
+                                path_to_original_directory.pop();
+                                if let Err(error) = self.select_multiple_files_from_files_selected(
+                                    last_str,
+                                    file_index,
+                                    &path_to_original_directory,
+                                ) {
+                                    self.error = error.to_string();
+                                }
+                            }
+                        }
+                    }
                 }
                 Task::none()
             }
-            Message::SelectMultipleFilesInFilesSelected(file_name, file_index) => {
-                if let Err(error) =
-                    self.select_multiple_files_from_files_selected(file_name, file_index)
-                {
-                    self.error = error.to_string();
-                }
-                Task::none()
-            }
+            Message::SelectMultipleFilesInFilesSelected(file_name, file_index) => Task::none(),
             Message::SelectAllFiles => {
                 if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
                     if let Err(error) = app_util::is_duplicate_files_in_files_selected(
@@ -1107,6 +1131,7 @@ impl App {
         }
     }
 
+    // This one requires fixing
     fn get_volumes_on_linux(&mut self) {
         if let Some(directories) = self.root.get_directories() {
             if let Some(run) = directories.get(&OsString::from("run")) {
@@ -1547,102 +1572,139 @@ impl App {
         }
     }
 
-    fn select_multiple_files_from_directory(
+    fn select_multiple_files_from_directories(
         &mut self,
-        file_path: &PathBuf,
-        file_index: usize,
+        new_file_name: &str,
+        new_file_index: usize,
+        directory_path: &PathBuf,
     ) -> std::io::Result<()> {
-        let files = self.select_multiple_files_by_path(&file_path, file_index)?;
-        for (key, value) in files {
-            self.files_selected.insert(key, value);
+        // Select multiple files from_directories
+        if self.multiple_selection.file_name.is_empty() {
+            self.multiple_selection.file_name = String::from(new_file_name);
+            self.multiple_selection.file_index = new_file_index;
+            return Ok(());
+        } else {
+            // Do multiple select
+            let mut files_selected = BTreeMap::new();
+            let mut files_unselected = BTreeMap::new();
+            if let Some(directory) = self.root.get_mut_directory_by_path(directory_path) {
+                if let Some(mut files) = directory.get_mut_files().take() {
+                    if self.multiple_selection.file_index > new_file_index {
+                        // Select from bottom
+                        (files_selected, files_unselected) = multiple_select_files(
+                            &mut files,
+                            &self.multiple_selection.file_name,
+                            new_file_name,
+                            SelectionDirection::Bottom,
+                        );
+                    } else {
+                        // Select from top
+                        (files_selected, files_unselected) = multiple_select_files(
+                            &mut files,
+                            &self.multiple_selection.file_name,
+                            new_file_name,
+                            SelectionDirection::Up,
+                        );
+                    }
+                    directory.insert_empty_files();
+                }
+            }
+            // Check for errors
+            if let Err(error) = app_util::is_duplicate_files_in_directory_selection(
+                &files_selected,
+                &self.files_selected,
+            ) {
+                if let Some(directory) = self.root.get_mut_directory_by_path(directory_path) {
+                    if let Some(files) = directory.get_mut_files() {
+                        for (key, value) in files_selected {
+                            files.insert(key, value);
+                        }
+                        for (key, value) in files_unselected {
+                            files.insert(key, value);
+                        }
+                    }
+                }
+                return Err(error);
+            }
+            // Put files to files_selected
+            if let Some(directory) = self.root.get_mut_directory_by_path(directory_path) {
+                if let Some(files) = directory.get_mut_files() {
+                    for (key, value) in files_unselected {
+                        files.insert(key, value);
+                    }
+
+                    for (key, value) in files_selected {
+                        self.files_selected.insert(key, value);
+                    }
+                }
+            }
         }
+        self.multiple_selection.file_index = 0;
+        self.multiple_selection.file_name.clear();
         Ok(())
     }
 
     fn select_multiple_files_from_files_selected(
         &mut self,
-        file_name: String,
-        file_index: usize,
+        new_file_name: &str,
+        new_file_index: usize,
+        origin_directory_path: &PathBuf,
     ) -> std::io::Result<()> {
         if self.multiple_selection.file_name.is_empty() {
-            self.multiple_selection.file_name = file_name;
-            self.multiple_selection.file_index = file_index;
+            self.multiple_selection.file_name = String::from(new_file_name);
+            self.multiple_selection.file_index = new_file_index;
             return Ok(());
         } else {
-            let mut files_deselected = BTreeMap::new();
-            let mut files_unselected = BTreeMap::new();
-            let mut in_file_boundaries = false;
-            if self.multiple_selection.file_index > file_index {
-                while let Some((key, value)) = self.files_selected.pop_last() {
-                    if key == OsString::from(&self.multiple_selection.file_name) {
-                        in_file_boundaries = true;
-                    }
-                    app_util::select_files_in_boundary(
-                        in_file_boundaries,
-                        &mut files_deselected,
-                        &mut files_unselected,
-                        &key,
-                        value,
-                    );
-                    if key == OsString::from(&file_name) {
-                        in_file_boundaries = false;
-                    }
-                }
-            } else {
-                while let Some((key, value)) = self.files_selected.pop_first() {
-                    if key == OsString::from(&self.multiple_selection.file_name) {
-                        in_file_boundaries = true;
-                    }
-                    app_util::select_files_in_boundary(
-                        in_file_boundaries,
-                        &mut files_deselected,
-                        &mut files_unselected,
-                        &key,
-                        value,
-                    );
-                    if key == OsString::from(&file_name) {
-                        in_file_boundaries = false;
-                    }
-                }
-            }
-            // Check for errors
-            if let Err(error) = self.is_duplicate_files_selected() {
-                for (key, value) in files_deselected {
+            // Write logic for second click in files_selected
+            let (files_selected, files_unselected) =
+                if self.multiple_selection.file_index > new_file_index {
+                    multiple_select_files(
+                        &mut self.files_selected,
+                        &self.multiple_selection.file_name,
+                        new_file_name,
+                        SelectionDirection::Bottom,
+                    )
+                } else {
+                    multiple_select_files(
+                        &mut self.files_selected,
+                        &self.multiple_selection.file_name,
+                        new_file_name,
+                        SelectionDirection::Up,
+                    )
+                };
+
+            // Do error checks
+            if let Err(error) = app_util::is_duplicate_files_in_files_selected(
+                &self.root,
+                &self.files_selected,
+                &origin_directory_path,
+            ) {
+                for (key, value) in files_selected {
                     self.files_selected.insert(key, value);
                 }
+
                 for (key, value) in files_unselected {
                     self.files_selected.insert(key, value);
                 }
-                self.multiple_selection.file_name.clear();
-                self.multiple_selection.file_index = 0;
                 return Err(error);
             }
-            // Put files deselected_back to directory
-            for file in files_deselected {
-                if let Some(metadata) = file.1.get_metadata() {
-                    if let Some(mut origin_path) = metadata.get_origin_path() {
-                        // Put files into their original path
-                        origin_path.pop();
-                        if let Some(original_dir) =
-                            self.root.get_mut_directory_by_path(&origin_path)
-                        {
-                            original_dir.insert_file(file.0, file.1);
-                        } else if let Some(current_selected_dir) =
-                            self.root.get_mut_directory_by_path(&self.path)
-                        {
-                            // If it can't be found. Place them in the current_path
-                            current_selected_dir.file_already_exists_in_directory(&file.0)?;
-                            current_selected_dir.insert_file(file.0, file.1);
-                        }
+            // Put files back to origin_directory or files_selected
+            if let Some(origin_directory) =
+                self.root.get_mut_directory_by_path(origin_directory_path)
+            {
+                if let Some(files) = origin_directory.get_mut_files() {
+                    // Do some loops
+                    for (key, value) in files_selected {
+                        files.insert(key, value);
+                    }
+
+                    for (key, value) in files_unselected {
+                        self.files_selected.insert(key, value);
                     }
                 }
             }
-            // Put unselected files back to files selected
-            for (key, value) in files_unselected {
-                self.files_selected.insert(key, value);
-            }
-            self.multiple_selection.file_name.clear();
             self.multiple_selection.file_index = 0;
+            self.multiple_selection.file_name.clear();
             return Ok(());
         }
     }
@@ -1958,6 +2020,56 @@ impl App {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum SelectionDirection {
+    Up,
+    Bottom,
+}
+
+pub fn multiple_select_files(
+    files_holder: &mut BTreeMap<OsString, File>,
+    previous_file_name: &str,
+    new_file_name: &str,
+    direction: SelectionDirection,
+) -> (BTreeMap<OsString, File>, BTreeMap<OsString, File>) {
+    let mut files_selected = BTreeMap::new();
+    let mut files_unselected = BTreeMap::new();
+    let mut in_boundaries = false;
+    match direction {
+        SelectionDirection::Bottom => {
+            while let Some((key, value)) = files_holder.pop_last() {
+                if OsString::from(previous_file_name) == key {
+                    in_boundaries = true;
+                }
+                if in_boundaries {
+                    files_selected.insert(key.to_owned(), value);
+                } else {
+                    files_unselected.insert(key.to_owned(), value);
+                }
+                if OsString::from(new_file_name) == key {
+                    in_boundaries = false;
+                }
+            }
+        }
+        SelectionDirection::Up => {
+            while let Some((key, value)) = files_holder.pop_first() {
+                if OsString::from(previous_file_name) == key {
+                    in_boundaries = true;
+                }
+                if in_boundaries {
+                    files_selected.insert(key.to_owned(), value);
+                } else {
+                    files_unselected.insert(key.to_owned(), value);
+                }
+                if OsString::from(new_file_name) == key {
+                    in_boundaries = false;
+                }
+            }
+        }
+    }
+    (files_selected, files_unselected)
 }
 
 #[cfg(test)]

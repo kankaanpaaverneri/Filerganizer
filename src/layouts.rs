@@ -735,13 +735,13 @@ impl Layout {
                         column = column.push(
                             mouse_area(button(file_name).style(file_button_style).on_press(
                                 Message::SelectFile(FileSelectedLocation::FromFilesSelected(
-                                    origin_path,
+                                    origin_path.to_owned(),
                                 )),
                             ))
                             .on_right_press(
-                                Message::SelectMultipleFilesInFilesSelected(
-                                    String::from(file_name),
+                                Message::SelectMultipleFiles(
                                     i,
+                                    FileSelectedLocation::FromFilesSelected(origin_path),
                                 ),
                             ),
                         );
@@ -808,7 +808,10 @@ impl Layout {
                                             )),
                                     )
                                     .on_right_press(
-                                        Message::SelectMultipleFiles(PathBuf::from(&path), i),
+                                        Message::SelectMultipleFiles(
+                                            i,
+                                            FileSelectedLocation::FromDirectory(path.to_owned()),
+                                        ),
                                     ),
                                 );
                             } else {
@@ -824,7 +827,10 @@ impl Layout {
                                             )),
                                     )
                                     .on_right_press(
-                                        Message::SelectMultipleFiles(PathBuf::from(&path), i),
+                                        Message::SelectMultipleFiles(
+                                            i,
+                                            FileSelectedLocation::FromDirectory(path.to_owned()),
+                                        ),
                                     ),
                                 );
                             }
@@ -1027,7 +1033,10 @@ impl Layout {
                                 path_stack.to_owned(),
                             )),
                         ))
-                        .on_right_press(Message::SelectMultipleFiles(path_stack.to_owned(), i)),
+                        .on_right_press(Message::SelectMultipleFiles(
+                            i,
+                            FileSelectedLocation::FromDirectory(path_stack.to_owned()),
+                        )),
                     )
                 }
                 path_stack.pop();
@@ -1132,10 +1141,12 @@ impl Layout {
                                 file_path.to_owned(),
                             )),
                         );
-                        column = column.push(
-                            mouse_area(button)
-                                .on_right_press(Message::SelectMultipleFiles(file_path, iterator)),
-                        );
+                        column = column.push(mouse_area(button).on_right_press(
+                            Message::SelectMultipleFiles(
+                                iterator,
+                                FileSelectedLocation::FromDirectory(file_path.to_owned()),
+                            ),
+                        ));
                     }
                 }
                 iterator += 1;
@@ -1152,7 +1163,7 @@ impl Layout {
     ) -> Column<'a, Message> {
         if let Some(files) = selected.get_files() {
             let mut iterator = 0;
-            for (key, value) in files.iter() {
+            for (key, _value) in files.iter() {
                 if let Some(file_name) = key.to_str() {
                     let mut path_to_file = PathBuf::from(current_path);
                     path_to_file.push(file_name);
@@ -1165,7 +1176,10 @@ impl Layout {
                                 )))
                                 .padding(5),
                         )
-                        .on_right_press(Message::SelectMultipleFiles(path_to_file, iterator)),
+                        .on_right_press(Message::SelectMultipleFiles(
+                            iterator,
+                            FileSelectedLocation::FromDirectory(path_to_file.to_owned()),
+                        )),
                     );
                 }
                 iterator += 1;
