@@ -8,7 +8,7 @@ use iced::{
     alignment::Vertical,
     widget::{
         button, checkbox, column, container, mouse_area, pick_list, radio, row, scrollable, text,
-        text_input, Button, Column, Container, Row,
+        text_input, Column, Container, Row,
     },
     Alignment::Center,
     Background, Color,
@@ -196,15 +196,9 @@ impl Layout {
                         header_column_row.push(button("Commit").on_press(Message::Commit))
                 }
                 main_row = main_row.push(
-                    scrollable(
-                        column![
-                            self.selected_directory_option(app),
-                            self.insert_files_selected(app),
-                        ]
-                        .padding(10),
-                    )
-                    .width(FillPortion(2))
-                    .spacing(5),
+                    scrollable(column![self.insert_files_selected(app),].padding(10))
+                        .width(FillPortion(2))
+                        .spacing(5),
                 );
             }
             if let Layout::DirectorySelectionLayout = self {
@@ -219,6 +213,9 @@ impl Layout {
                 );
             }
             header_column = header_column.push(header_column_row);
+            if let Some(directory_path) = app.get_directory_selected() {
+                main_row = main_row.push(self.selected_directory_option(app, directory_path));
+            }
 
             container(
                 column![
@@ -236,47 +233,6 @@ impl Layout {
                 .spacing(10)
                 .padding(10),
             )
-        } else {
-            container(text("Could not find path"))
-        }
-    }
-
-    fn directory_organizing_layout<'a>(&'a self, app: &'a App) -> Container<'a, Message> {
-        let mut select_all_files_button = Column::new();
-        if let Some(path) = app.get_path().to_str() {
-            let selected_dir = app
-                .get_root_directory()
-                .get_directory_by_path(app.get_path());
-
-            if let Some(files) = selected_dir.get_files() {
-                if !files.is_empty() {
-                    select_all_files_button = select_all_files_button
-                        .push(button("Select all files").on_press(Message::SelectAllFiles));
-                }
-            }
-            let mut directory_content_fill_portion = FillPortion(1);
-            if app.get_files_selected().is_empty() {
-                directory_content_fill_portion = Fill;
-            }
-
-            container(column![
-                column![text(app.get_error())],
-                select_all_files_button,
-                row![
-                    scrollable(self.display_selected_path_content(app))
-                        .width(directory_content_fill_portion),
-                    scrollable(
-                        column![
-                            self.selected_directory_option(app),
-                            self.insert_files_selected(app),
-                        ]
-                        .padding(10)
-                    )
-                    .width(FillPortion(2))
-                    .spacing(5)
-                ]
-                .spacing(5)
-            ])
         } else {
             container(text("Could not find path"))
         }
@@ -525,39 +481,35 @@ impl Layout {
         return column;
     }
 
-    fn selected_directory_option<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
+    fn selected_directory_option<'a>(
+        &'a self,
+        app: &'a App,
+        directory_path: &'a PathBuf,
+    ) -> Column<'a, Message> {
         let mut column = Column::new();
-        let directory_selected = app.get_directory_selected();
-        if let Some(directory_path) = directory_selected {
-            if let Some(last_component) = directory_path.iter().last() {
-                if let Some(dir_name) = last_component.to_str() {
-                    let row = row![
-                        text("Selected directory").size(15),
-                        button(dir_name).style(directory_button_style)
-                    ]
-                    .spacing(5)
-                    .align_y(Vertical::Center);
-                    column = column.push(row);
-                    column = column.push(button("Extract directory content").on_press(
-                        Message::ExtractContentFromDirectory(PathBuf::from(directory_path)),
-                    ));
-                    column = column.push(button("Extract all files from directory").on_press(
-                        Message::ExtractAllContentFromDirectory(PathBuf::from(directory_path)),
-                    ));
-                    if app.get_directory_selected().is_some() {
-                        column = column.push(
-                            button("Insert selected files to selected directory")
-                                .on_press(Message::InsertFilesToSelectedDirectory),
-                        );
-                    }
-                    if let Some(rules) = app.get_selected_directory_rules() {
-                        column = column.push(column![
-                            text("Rules for selected directory"),
-                            self.selected_directory_rules(rules).padding(10)
-                        ])
-                    }
-                    column = column.padding(10).spacing(10);
+        if let Some(last_component) = directory_path.iter().last() {
+            if let Some(dir_name) = last_component.to_str() {
+                let row = row![
+                    text("Selected directory").size(15),
+                    button(dir_name).style(directory_button_style)
+                ]
+                .spacing(5)
+                .align_y(Vertical::Center);
+                column = column.push(row);
+                if !app.get_files_selected().is_empty() {
+                    column = column.push(
+                        button("Insert selected files to selected directory")
+                            .style(directory_button_style)
+                            .on_press(Message::InsertFilesToSelectedDirectory),
+                    );
                 }
+                if let Some(rules) = app.get_selected_directory_rules() {
+                    column = column.push(column![
+                        text("Rules for selected directory"),
+                        self.selected_directory_rules(rules).padding(10)
+                    ])
+                }
+                column = column.padding(10).spacing(10);
             }
         }
         column
@@ -720,9 +672,6 @@ impl Layout {
                 column = column.push(button("Just rename").on_press(Message::RenameFiles));
                 column = column.push(self.rules_for_directory(app));
 
-                column = column.push(
-                    button("Remove all files from selected").on_press(Message::PutAllFilesBack),
-                );
                 column = column.push(text("Selected files").size(15));
                 let files_selected_count = app.get_files_selected().len();
                 let formatted_count = format!("{}", files_selected_count);
@@ -753,123 +702,6 @@ impl Layout {
         column = column.spacing(10).padding(10);
 
         column
-    }
-
-    fn display_selected_path_content<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
-        let current_directory = app.get_root_directory();
-        let path = PathBuf::from(app.get_path());
-        let mut path_iter = path.iter();
-        path_iter.next();
-
-        let mut column =
-            self.display_directories_as_dropdown(current_directory, path_iter, path.clone());
-
-        // Display files in the root directory
-        //column = self.append_files_to_column(current_directory, &mut path, column, true);
-        column = column.padding(10).spacing(10);
-        column
-    }
-
-    // For when directory has been selected
-    fn display_directories_as_dropdown<'a>(
-        &'a self,
-        current_directory: &'a Directory,
-        mut path_iter: Iter,
-        mut path_stack: PathBuf,
-    ) -> Column<'a, Message> {
-        let mut column = Column::new();
-
-        column
-    }
-
-    fn append_files_to_column<'a>(
-        &'a self,
-        root: &'a Directory,
-        path: &mut PathBuf,
-        mut column: Column<'a, Message>,
-        files_selectable: bool,
-    ) -> Column<'a, Message> {
-        if let Some(files) = root.get_files() {
-            for (i, (key, value)) in files.iter().enumerate() {
-                if let Some(file_name) = key.to_str() {
-                    path.push(key);
-                    if let Some(metadata) = value.get_metadata() {
-                        if let Some(origin_path) = metadata.get_origin_path() {
-                            if files_selectable {
-                                column = column.push(
-                                    mouse_area(
-                                        button(file_name)
-                                            .style(file_button_style)
-                                            .width(Fill)
-                                            .on_press(Message::SelectFile(
-                                                FileSelectedLocation::FromDirectory(
-                                                    path.to_owned(),
-                                                ),
-                                            )),
-                                    )
-                                    .on_right_press(
-                                        Message::SelectMultipleFiles(
-                                            i,
-                                            FileSelectedLocation::FromDirectory(path.to_owned()),
-                                        ),
-                                    ),
-                                );
-                            } else {
-                                column = column.push(
-                                    mouse_area(
-                                        button(file_name)
-                                            .width(Fill)
-                                            .style(inner_file_button_style)
-                                            .on_press(Message::SelectFile(
-                                                FileSelectedLocation::FromDirectory(
-                                                    path.to_owned(),
-                                                ),
-                                            )),
-                                    )
-                                    .on_right_press(
-                                        Message::SelectMultipleFiles(
-                                            i,
-                                            FileSelectedLocation::FromDirectory(path.to_owned()),
-                                        ),
-                                    ),
-                                );
-                            }
-                        }
-                    }
-
-                    path.pop();
-                }
-            }
-        }
-        column
-    }
-
-    fn create_directory_buttons_row<'a>(
-        &'a self,
-        call_count: usize,
-        drop_down_icon: &'a str,
-        directory_name: &'a str,
-        path: &PathBuf,
-    ) -> Row<'a, Message> {
-        if call_count == 0 {
-            return row![
-                button(drop_down_icon)
-                    .style(directory_button_style)
-                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                button(directory_name)
-                    .style(directory_button_style)
-                    .on_press(Message::SelectDirectory(PathBuf::from(&path))),
-            ];
-        } else {
-            return row![
-                button(drop_down_icon)
-                    .style(directory_button_style)
-                    .on_press(Message::ViewDirectory(PathBuf::from(&path))),
-                text(directory_name)
-            ]
-            .spacing(5)
-            .align_y(Vertical::Center);
-        }
     }
 
     fn insert_search_bar<'a>(&self, app: &'a App, path: &str) -> Row<'a, Message> {
@@ -909,10 +741,9 @@ impl Layout {
 
     fn display_directory_contents<'a>(&'a self, app: &'a App) -> Column<'a, Message> {
         match app.get_directory_view() {
-            DirectoryView::List => column![
-                self.insert_header(),
-                scrollable(self.display_directory_contents_as_list(app))
-            ],
+            DirectoryView::List => {
+                column![scrollable(self.display_directory_contents_as_list(app))]
+            }
             DirectoryView::DropDown => {
                 let path = PathBuf::from(app.get_path());
                 let mut path_iter = path.iter();
@@ -940,7 +771,13 @@ impl Layout {
         if let Some(next) = full_path_iter.next() {
             if let Some(directories) = current_directory.get_directories() {
                 for dir_key in directories.keys() {
-                    column = self.insert_drop_down_directories(dir_key, path_stack, column);
+                    let drop_down_icon = if dir_key == next { "|" } else { ">" };
+                    column = self.insert_drop_down_directories(
+                        dir_key,
+                        path_stack,
+                        column,
+                        drop_down_icon,
+                    );
                     if dir_key == next {
                         if let Some(selected) = directories.get(dir_key) {
                             path_stack.push(next);
@@ -962,7 +799,13 @@ impl Layout {
         } else {
             if let Some(directories) = current_directory.get_directories() {
                 for dir_key in directories.keys() {
-                    column = self.insert_drop_down_directories(dir_key, path_stack, column);
+                    let drop_down_icon = ">";
+                    column = self.insert_drop_down_directories(
+                        dir_key,
+                        path_stack,
+                        column,
+                        drop_down_icon,
+                    );
                 }
             }
         }
@@ -1014,25 +857,43 @@ impl Layout {
             for key in directories.keys() {
                 path_stack.push(key);
                 if let Some(dir_name) = key.to_str() {
-                    column = column.push(
+                    let mut button_row = row![button(">")
+                        .style(directory_button_style)
+                        .on_press(Message::DropDownDirectory(path_stack.to_owned()))];
+                    button_row = button_row.push(
                         button(dir_name)
                             .style(directory_button_style)
-                            .on_press(Message::DropDownDirectory(path_stack.to_owned())),
+                            .width(Fill)
+                            .on_press(Message::SelectDirectory(path_stack.to_owned())),
                     );
+                    button_row = button_row.width(FillPortion(2));
+                    column = column.push(button_row);
                 }
                 path_stack.pop();
             }
         }
         if let Some(files) = dir.get_files() {
-            for (i, key) in files.keys().enumerate() {
+            for (i, (key, value)) in files.iter().enumerate() {
                 path_stack.push(key);
                 if let Some(file_name) = key.to_str() {
+                    let mut file_information = String::from(file_name);
+                    if let Some(metadata) = value.get_metadata() {
+                        if let Some(size) = metadata.get_size() {
+                            file_information.push(' ');
+                            let (divided_size, postfix) = round_size(size);
+                            let formatted_size = format!("{} {}", divided_size, postfix);
+                            file_information.push_str(&formatted_size);
+                        }
+                    }
                     column = column.push(
-                        mouse_area(button(file_name).style(file_button_style).on_press(
-                            Message::SelectFile(FileSelectedLocation::FromDirectory(
-                                path_stack.to_owned(),
-                            )),
-                        ))
+                        mouse_area(
+                            button(text(file_information))
+                                .style(file_button_style)
+                                .width(FillPortion(2))
+                                .on_press(Message::SelectFile(
+                                    FileSelectedLocation::FromDirectory(path_stack.to_owned()),
+                                )),
+                        )
                         .on_right_press(Message::SelectMultipleFiles(
                             i,
                             FileSelectedLocation::FromDirectory(path_stack.to_owned()),
@@ -1060,97 +921,29 @@ impl Layout {
         row
     }
 
-    fn insert_header<'a>(&self) -> Row<'a, Message> {
-        let mut header: Row<Message> = Row::new();
-        header = header.push(text("Name").width(FillPortion(1)));
-        header = header.push(text("Created").width(FillPortion(1)));
-        header = header.push(text("Accessed").width(FillPortion(1)));
-        header = header.push(text("Modified").width(FillPortion(1)));
-        header = header.push(text("Permissions").width(FillPortion(1)));
-        header = header.push(text("Size").width(FillPortion(1)));
-        header = header.padding(10);
-        header
-    }
-
-    fn insert_directories<'a>(
-        &self,
-        current_directory: &'a Directory,
-        path: &PathBuf,
-        mut column: Column<'a, Message>,
-    ) -> Column<'a, Message> {
-        if let Some(dirs) = current_directory.get_directories() {
-            for (key, directory) in dirs.iter() {
-                let mut path = PathBuf::from(path);
-                path.push(key);
-                if let Some(dir_name) = key.to_str() {
-                    if let Some(dir_metadata) = directory.get_metadata() {
-                        let row = self.insert_formatted_metadata(dir_name, dir_metadata, 1);
-                        column = column.push(
-                            button(row)
-                                .on_press(Message::DropDownDirectory(path))
-                                .padding(10)
-                                .style(directory_button_style),
-                        );
-                    }
-                }
-            }
-        }
-        column
-    }
-
     fn insert_drop_down_directories<'a>(
         &'a self,
         selected_directory_key: &'a OsStr,
         path_stack: &PathBuf,
         mut column: Column<'a, Message>,
+        drop_down_icon: &'a str,
     ) -> Column<'a, Message> {
         let mut path_stack = PathBuf::from(&path_stack);
 
         path_stack.push(selected_directory_key);
 
         if let Some(key) = selected_directory_key.to_str() {
-            column = column.push(
+            let mut row = row![button(drop_down_icon)
+                .style(directory_button_style)
+                .on_press(Message::DropDownDirectory(PathBuf::from(&path_stack)))];
+            row = row.push(
                 button(key)
-                    .width(500)
-                    .padding(5)
+                    .width(Fill)
                     .style(directory_button_style)
-                    .on_press(Message::DropDownDirectory(PathBuf::from(&path_stack))),
+                    .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
             );
-        }
-        column
-    }
-
-    fn insert_files<'a>(
-        &self,
-        root_dir: &'a Directory,
-        file_path: &PathBuf,
-        mut column: Column<'a, Message>,
-    ) -> Column<'a, Message> {
-        if let Some(files) = root_dir.get_files() {
-            let mut iterator = 0;
-            for (key, file) in files.iter() {
-                if let Some(file_name) = key.to_str() {
-                    let mut file_path = PathBuf::from(file_path);
-                    file_path.push(file_name);
-                    if let Some(file_metadata) = file.get_metadata() {
-                        let row = self
-                            .insert_formatted_metadata(file_name, file_metadata, 1)
-                            .padding(10);
-                        let button = Button::new(row).style(file_button_style).on_press(
-                            Message::SelectFile(FileSelectedLocation::FromDirectory(
-                                file_path.to_owned(),
-                            )),
-                        );
-                        column = column.push(mouse_area(button).on_right_press(
-                            Message::SelectMultipleFiles(
-                                iterator,
-                                FileSelectedLocation::FromDirectory(file_path.to_owned()),
-                            ),
-                        ));
-                    }
-                }
-                iterator += 1;
-            }
+            row = row.padding(5);
+            column = column.push(row);
         }
         column
     }
@@ -1311,35 +1104,6 @@ fn file_button_style(_: &Theme, status: button::Status) -> button::Style {
         button::Status::Disabled => {
             let mut style = button::Style::default()
                 .with_background(Background::Color(get_file_button_background_color(0.1)));
-            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
-            style
-        }
-        button::Status::Pressed => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_file_button_background_color(0.7)));
-            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
-            style
-        }
-    }
-}
-
-fn inner_file_button_style(_: &Theme, status: button::Status) -> button::Style {
-    match status {
-        button::Status::Active => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_file_button_background_color(0.0)));
-            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
-            style
-        }
-        button::Status::Hovered => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_file_button_background_color(0.7)));
-            style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
-            style
-        }
-        button::Status::Disabled => {
-            let mut style = button::Style::default()
-                .with_background(Background::Color(get_file_button_background_color(0.0)));
             style.text_color = Color::from_rgba(1.0, 1.0, 1.0, 1.0);
             style
         }

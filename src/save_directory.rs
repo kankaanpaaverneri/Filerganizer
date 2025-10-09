@@ -68,39 +68,6 @@ pub fn write_created_directory_to_save_file(
     Ok(())
 }
 
-pub fn remove_directory_from_file(
-    home_directory_path: &PathBuf,
-    path_to_extracted_dir: &PathBuf,
-) -> std::io::Result<()> {
-    let read_result = match std::fs::File::options()
-        .read(true)
-        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))
-    {
-        Ok(mut file) => {
-            let mut buffer = String::new();
-            file.read_to_string(&mut buffer)?;
-
-            // Filter file content
-            let filtered = filter_path_from_file_content(&mut buffer, path_to_extracted_dir);
-            let mut updated_file_content = String::new();
-            for line in filtered {
-                updated_file_content.push_str(line);
-                updated_file_content.push('\n');
-            }
-            Ok(updated_file_content)
-        }
-        Err(error) => Err(error),
-    };
-    let updated_file_content = read_result?;
-    let mut file = std::fs::File::options()
-        .truncate(true)
-        .write(true)
-        .open(get_save_file_location(home_directory_path, SAVE_FILE_NAME))?;
-    file.set_len(0)?;
-    file.write(updated_file_content.as_bytes())?;
-    Ok(())
-}
-
 pub fn read_directory_rules_from_file(
     home_directory_path: &PathBuf,
     directory_path: &PathBuf,
@@ -398,54 +365,9 @@ fn write_value_to_file_content(file_content: &mut String, value: bool) {
     }
 }
 
-fn filter_path_from_file_content<'a>(
-    buffer: &'a mut String,
-    path_to_remove: &'a PathBuf,
-) -> Vec<&'a str> {
-    buffer
-        .lines()
-        .filter_map(|line| {
-            if let Some((path, _rest)) = line.split_once(",") {
-                if &PathBuf::from(path) == path_to_remove {
-                    return None;
-                }
-            }
-            Some(line)
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_filter_path_from_file_content() {
-        let mut file_content = String::from(CSV_FILE_HEADER);
-        file_content.push_str("/home/verneri/screen_record/records,0,0,1,1,1,1,1,1,1,Created\n");
-        file_content.push_str("/home/verneri/screen_record/template,1,1,1,1,1,1,1,1,1,Modified\n");
-
-        let path_to_remove = PathBuf::from("/home/verneri/screen_record/template");
-
-        let filtered = filter_path_from_file_content(&mut file_content, &path_to_remove);
-        let csv_file_header = String::from(CSV_FILE_HEADER);
-        let replaced = csv_file_header.replace("\n", "");
-        let expected_file_content = vec![
-            &replaced,
-            "/home/verneri/screen_record/records,0,0,1,1,1,1,1,1,1,Created",
-        ];
-        assert_eq!(expected_file_content, filtered);
-
-        let second_path_to_remove = PathBuf::from("/home/verneri/screen_record/records");
-
-        let second_filtered =
-            filter_path_from_file_content(&mut file_content, &second_path_to_remove);
-        let second_expected_file_content = vec![
-            &replaced,
-            "/home/verneri/screen_record/template,1,1,1,1,1,1,1,1,1,Modified",
-        ];
-        assert_eq!(second_expected_file_content, second_filtered);
-    }
 
     #[test]
     fn test_parse_file_result() {

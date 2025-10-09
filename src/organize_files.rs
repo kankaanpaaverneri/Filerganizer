@@ -7,7 +7,7 @@ use crate::metadata::DateType;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::ErrorKind;
-use std::path::{self, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct OrganizingData<'a> {

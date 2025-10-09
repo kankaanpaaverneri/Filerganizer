@@ -48,27 +48,6 @@ impl Directory {
         }
     }
 
-    pub fn get_files_recursive(
-        &mut self,
-        files_holder: &mut BTreeMap<OsString, File>,
-    ) -> std::io::Result<()> {
-        self.contains_unique_files(files_holder)?;
-        if let Some(files) = self.files.take() {
-            for (key, value) in files {
-                files_holder.insert(key, value);
-            }
-        }
-
-        if let Some(directories) = &mut self.directories {
-            for (_key, directory) in directories {
-                directory.get_files_recursive(files_holder)?;
-            }
-        }
-        self.clear_directory_content();
-
-        Ok(())
-    }
-
     pub fn contains_unique_files(
         &self,
         files_holder: &BTreeMap<OsString, File>,
@@ -149,13 +128,6 @@ impl Directory {
         0
     }
 
-    pub fn get_directory_count(&self) -> usize {
-        if let Some(directories) = &self.directories {
-            return directories.len();
-        }
-        0
-    }
-
     pub fn clear_directory_content(&mut self) {
         if let Some(directories) = self.directories.as_mut() {
             directories.clear();
@@ -165,29 +137,6 @@ impl Directory {
         }
         self.directories = None;
         self.files = None;
-    }
-
-    pub fn write_directories_recursive(&mut self, path: &mut PathBuf) -> std::io::Result<()> {
-        if let Some(mut sub_directories) = self.directories.take() {
-            let mut new_directories = BTreeMap::new();
-            for (name, mut directory) in sub_directories {
-                path.push(&name);
-                let mut new_sub_directory = Directory::new(None);
-                directory.read_path(path, &mut new_sub_directory)?;
-                new_sub_directory.write_directories_recursive(path)?;
-                path.pop();
-                new_directories.insert(OsString::from(&name), new_sub_directory);
-            }
-            sub_directories = new_directories;
-            self.directories = Some(sub_directories);
-        }
-        Ok(())
-    }
-
-    pub fn remove_sub_directory(&mut self, directory_name: &OsStr) {
-        if let Some(directories) = &mut self.directories {
-            directories.remove(directory_name);
-        }
     }
 
     pub fn insert_new_directories(&mut self, new_dirs: BTreeMap<OsString, Directory>) {
@@ -521,7 +470,6 @@ pub mod tests {
         let mut directory = Directory::new(None);
         directory.insert_directory(Directory::new(None), "content");
         directory.insert_directory(Directory::new(None), "text_files");
-        directory.remove_sub_directory(&OsString::from("content"));
         if let Some(directories) = directory.get_directories() {
             assert_eq!(
                 directories.contains_key(&OsString::from("text_files")),
@@ -707,25 +655,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_get_files_recursive() {
-        let mut directory = get_dummy_directory_tree();
-        let mut files = BTreeMap::new();
-        if let Ok(_) = directory.get_files_recursive(&mut files) {
-            assert_eq!(files.len(), 5);
-        } else {
-            panic!("Wrong count");
-        }
-        let mut directory = get_dummy_directory_tree();
-        files.clear();
-
-        if let Ok(_) = directory.get_files_recursive(&mut files) {
-            assert_eq!(files.len(), 5);
-        } else {
-            panic!("Wrong count");
-        }
-    }
-
-    #[test]
     fn test_insert_directory() {
         let mut directory = Directory::new(None);
         directory.insert_directory(
@@ -753,6 +682,5 @@ pub mod tests {
             assert_eq!(files.contains_key(&OsString::from("file4.txt")), true);
             assert_eq!(files.contains_key(&OsString::from("file5.txt")), false);
         }
-        //pub fn insert_file(&mut self, file_name: OsString, file: File) {
     }
 }

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::read_dir;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::usize;
 
 use crate::app_util::convert_os_str_to_str;
@@ -195,19 +195,13 @@ pub enum Message {
     SwitchDirectoryView(DirectoryView),
     TextInput(String),
     SearchPath(bool),
-    MoveDownDirectory(OsString),
-    MoveUpDirectory,
     MoveInExternalDirectory(OsString),
     DropDownDirectory(PathBuf),
 
     SelectPath,
-    ViewDirectory(PathBuf),
     SelectDirectory(PathBuf),
     SelectFile(FileSelectedLocation),
     SelectMultipleFiles(usize, FileSelectedLocation),
-    SelectMultipleFilesInFilesSelected(String, usize),
-    SelectAllFiles,
-    PutAllFilesBack,
     InputNewDirectoryName(String),
     CreateDirectoryWithSelectedFiles,
     RenameFiles,
@@ -217,13 +211,10 @@ pub enum Message {
     AddNewReplaceable,
     RemoveReplaceable(usize),
     DateTypeSelected(DateType),
-    ExtractContentFromDirectory(PathBuf),
-    ExtractAllContentFromDirectory(PathBuf),
     InsertFilesToSelectedDirectory,
     SwapFileNameComponents(usize),
     FilenameInput(String),
     IndexPositionSelected(IndexPosition),
-    Back,
     Commit,
     TabKeyPressed,
     Exit,
@@ -258,16 +249,6 @@ impl App {
                         self.error = error.to_string();
                     }
                 }
-                Task::none()
-            }
-            Message::MoveDownDirectory(directory_name) => {
-                if let Err(error) = self.move_down_directory(&directory_name) {
-                    self.error = error.to_string();
-                }
-                Task::none()
-            }
-            Message::MoveUpDirectory => {
-                self.move_up_directory();
                 Task::none()
             }
             Message::MoveInExternalDirectory(external) => {
@@ -306,12 +287,7 @@ impl App {
                     return Task::none();
                 }
             },
-            Message::ViewDirectory(path_to_selected_directory) => {
-                if let Err(error) = self.view_directory(path_to_selected_directory) {
-                    self.error = error.to_string();
-                }
-                Task::none()
-            }
+
             Message::SelectDirectory(path_to_directory) => {
                 self.selected_directory_rules = None;
                 match self.directory_selected {
@@ -439,38 +415,7 @@ impl App {
                 }
                 Task::none()
             }
-            Message::SelectMultipleFilesInFilesSelected(file_name, file_index) => Task::none(),
-            Message::SelectAllFiles => {
-                if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
-                    if let Err(error) = app_util::is_duplicate_files_in_files_selected(
-                        selected_dir,
-                        &self.files_selected,
-                        &self.path,
-                    ) {
-                        self.error = error.to_string();
-                        return Task::none();
-                    }
-                    if let Some(files) = selected_dir.get_mut_files() {
-                        while let Some((key, value)) = files.pop_last() {
-                            self.files_selected.insert(key, value);
-                        }
-                    }
-                }
-                return Task::none();
-            }
-            Message::PutAllFilesBack => {
-                if let Err(error) = self.is_duplicate_files_selected() {
-                    self.error = error.to_string();
-                    return Task::none();
-                }
 
-                if let Some(selected_dir) = self.root.get_mut_directory_by_path(&self.path) {
-                    while let Some((key, value)) = self.files_selected.pop_last() {
-                        selected_dir.insert_file(key, value);
-                    }
-                }
-                Task::none()
-            }
             Message::InputNewDirectoryName(input) => {
                 self.new_directory_name = input;
                 Task::none()
@@ -598,51 +543,6 @@ impl App {
                 self.date_type_selected = Some(date_type);
                 Task::none()
             }
-            Message::ExtractContentFromDirectory(mut path_to_selected_directory) => {
-                let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
-                if path_to_parent_directory.pop() {
-                    match self.extract_content_from_directory(
-                        &mut path_to_selected_directory,
-                        &path_to_parent_directory,
-                    ) {
-                        Ok(_) => {
-                            match save_directory::remove_directory_from_file(
-                                &self.home_directory_path,
-                                &path_to_selected_directory,
-                            ) {
-                                Ok(_) => {}
-                                Err(error) => self.error = error.to_string(),
-                            }
-                            self.directory_selected = None;
-                        }
-                        Err(error) => self.error = error.to_string(),
-                    }
-                }
-
-                Task::none()
-            }
-            Message::ExtractAllContentFromDirectory(mut path_to_selected_directory) => {
-                let mut path_to_parent_directory = PathBuf::from(&path_to_selected_directory);
-                if path_to_parent_directory.pop() {
-                    match self.extract_all_files_from_directory(
-                        &path_to_parent_directory,
-                        &mut path_to_selected_directory,
-                    ) {
-                        Ok(_) => {
-                            match save_directory::remove_directory_from_file(
-                                &self.home_directory_path,
-                                &path_to_selected_directory,
-                            ) {
-                                Ok(_) => {}
-                                Err(error) => self.error = error.to_string(),
-                            }
-                            self.directory_selected = None;
-                        }
-                        Err(error) => self.error = error.to_string(),
-                    }
-                }
-                Task::none()
-            }
             Message::InsertFilesToSelectedDirectory => {
                 if let Err(error) = self.insert_files_to_selected_dir() {
                     self.error = error.to_string();
@@ -709,13 +609,6 @@ impl App {
                 self.update_path_input();
                 iced::widget::text_input::move_cursor_to_end::<Message>(self.path_input_id.clone())
             }
-            Message::Back => {
-                self.init_app_data();
-                if let Err(error) = self.switch_layout(&Layout::DirectorySelectionLayout) {
-                    self.error = error.to_string();
-                }
-                Task::none()
-            }
             Message::Exit => iced::exit(),
         }
     }
@@ -749,10 +642,6 @@ impl App {
 
     pub fn get_files_selected(&self) -> &BTreeMap<OsString, File> {
         &self.files_selected
-    }
-
-    pub fn get_directories_selected(&self) -> &HashSet<PathBuf> {
-        &self.directories_selected
     }
 
     pub fn get_new_directory_input(&self) -> &String {
@@ -845,10 +734,6 @@ impl App {
                 Ok(())
             }
             Layout::DirectoryOrganizingLayout => {
-                //let mut path = PathBuf::from(&self.path);
-                //if let Err(error) = self.write_selected_directory_recursively(&mut path) {
-                //    return Err(error);
-                //}
                 self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
             }
@@ -942,25 +827,6 @@ impl App {
         Ok(())
     }
 
-    fn move_down_directory(&mut self, directory_name: &OsStr) -> std::io::Result<()> {
-        let mut path = PathBuf::from(&self.path);
-        path.push(directory_name);
-        self.write_directory_to_tree(&path)?;
-        self.path = path;
-        self.update_path_input();
-        Ok(())
-    }
-
-    fn move_up_directory(&mut self) {
-        let path_before_pop = self.path.as_path().to_path_buf();
-        if self.path.pop() {
-            if let Some(last) = self.root.get_mut_directory_by_path(&path_before_pop) {
-                last.clear_directory_content();
-            }
-        }
-        self.update_path_input();
-    }
-
     fn move_in_external_directory(&mut self, external: &OsStr) -> std::io::Result<()> {
         match std::env::consts::OS {
             "windows" => {
@@ -981,32 +847,23 @@ impl App {
             "linux" => {
                 self.path.clear();
                 self.path.push("/run");
-                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                self.directories_selected.clear();
+                if !self.directories_selected.contains(&PathBuf::from("/run")) {
+                    self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                }
                 self.path.push("media");
-                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                if !self.directories_selected.contains(&PathBuf::from("media")) {
+                    self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                }
                 self.path.push(external);
-                self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                if !self.directories_selected.contains(&PathBuf::from(external)) {
+                    self.write_directory_to_tree(&PathBuf::from(&self.path))?;
+                }
                 self.update_path_input();
                 Ok(())
             }
             _ => Ok(()),
         }
-    }
-
-    fn insert_path_to_directories_selected(&mut self, path: PathBuf) {
-        if self.directories_selected.contains(&path) {
-        } else {
-            self.directories_selected.insert(path);
-        }
-    }
-
-    fn view_directory(&mut self, path_to_selected_directory: PathBuf) -> std::io::Result<()> {
-        println!(
-            "path_to_selected_directory: {:?}",
-            path_to_selected_directory
-        );
-
-        Ok(())
     }
 
     fn select_drop_down_directory(
@@ -1042,6 +899,7 @@ impl App {
                 self.directories_selected
                     .insert(path_to_selected_directory.to_owned());
             }
+
             self.path = PathBuf::from(path_to_selected_directory);
         }
         self.update_path_input();
@@ -1091,20 +949,6 @@ impl App {
             }
         }
         self.path = path.clone();
-        Ok(())
-    }
-
-    fn write_selected_directory_recursively(
-        &mut self,
-        path_stack: &mut PathBuf,
-    ) -> std::io::Result<()> {
-        if let Some(directory) = self.root.get_mut_directory_by_path(path_stack) {
-            let temp = directory.clone(); // Save copy of directory in case of failure
-            if let Err(error) = directory.write_directories_recursive(path_stack) {
-                *directory = temp;
-                return Err(error);
-            }
-        }
         Ok(())
     }
 
@@ -1160,12 +1004,6 @@ impl App {
         if let Some(path_str) = self.path.to_str() {
             self.path_input = String::from(path_str);
         }
-    }
-
-    fn is_duplicate_files_selected(&self) -> std::io::Result<()> {
-        let selected_dir = self.root.get_directory_by_path(&self.path);
-        selected_dir.contains_unique_files(&self.files_selected)?;
-        Ok(())
     }
 
     fn is_directory_creation_valid(&self, save_file_name: &str) -> std::io::Result<()> {
@@ -1396,182 +1234,6 @@ impl App {
             .collect();
     }
 
-    fn extract_content_from_directory(
-        &mut self,
-        path_to_selected_directory: &mut PathBuf,
-        path_to_parent_directory: &PathBuf,
-    ) -> std::io::Result<()> {
-        let selected_dir = self.root.get_directory_by_path(&path_to_selected_directory);
-        let parent_dir = self.root.get_directory_by_path(&path_to_parent_directory);
-
-        if app_util::directories_have_duplicate_directories(parent_dir, selected_dir)
-            || app_util::directories_have_duplicate_files(parent_dir, selected_dir)
-        {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidData,
-                "No duplicates allowed in same directory",
-            ));
-        }
-        let mut files_holder = BTreeMap::new();
-        let mut directories_holder = BTreeMap::new();
-        self.insert_content_from_selected(
-            &mut directories_holder,
-            &mut files_holder,
-            &path_to_selected_directory,
-        )?;
-
-        self.place_files_to_parent_directory(
-            directories_holder,
-            files_holder,
-            path_to_parent_directory,
-        )?;
-
-        if let Some(last) = path_to_selected_directory.iter().last() {
-            self.remove_directories_from_extracted_dir(last, path_to_parent_directory)?;
-            self.directories_selected.remove(path_to_selected_directory);
-        }
-
-        Ok(())
-    }
-
-    fn insert_content_from_selected(
-        &mut self,
-        directories_holder: &mut BTreeMap<OsString, Directory>,
-        files_holder: &mut BTreeMap<OsString, File>,
-        path_to_selected_directory: &PathBuf,
-    ) -> std::io::Result<()> {
-        match self
-            .root
-            .get_mut_directory_by_path(path_to_selected_directory)
-        {
-            Some(selected_dir) => {
-                if let Some(files) = selected_dir.get_mut_files().take() {
-                    for (key, value) in files {
-                        files_holder.insert(key, value);
-                    }
-                }
-                if let Some(directories) = selected_dir.get_mut_directories().take() {
-                    for (key, value) in directories {
-                        directories_holder.insert(key, value);
-                    }
-                }
-                Ok(())
-            }
-            None => Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "Selected directory path didn't have results",
-            )),
-        }
-    }
-
-    fn place_files_to_parent_directory(
-        &mut self,
-        directories_holder: BTreeMap<OsString, Directory>,
-        files_holder: BTreeMap<OsString, File>,
-        path_to_parent_directory: &PathBuf,
-    ) -> std::io::Result<()> {
-        match self
-            .root
-            .get_mut_directory_by_path(&path_to_parent_directory)
-        {
-            Some(parent_dir) => {
-                for (file_name, file) in files_holder {
-                    parent_dir.insert_file(file_name, file);
-                }
-                for (dir_name, directory) in directories_holder {
-                    if let Some(directory_name_str) = dir_name.to_str() {
-                        parent_dir.insert_directory(directory, directory_name_str);
-                    }
-                }
-                Ok(())
-            }
-            None => Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "Parent directory not found",
-            )),
-        }
-    }
-
-    fn remove_directories_from_extracted_dir(
-        &mut self,
-        selected_directory_name: &OsStr,
-        path_to_parent_directory: &PathBuf,
-    ) -> std::io::Result<()> {
-        match self
-            .root
-            .get_mut_directory_by_path(path_to_parent_directory)
-        {
-            Some(parent_dir) => {
-                parent_dir.remove_sub_directory(selected_directory_name);
-                Ok(())
-            }
-            None => Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "Parent directory not found",
-            )),
-        }
-    }
-
-    fn extract_all_files_from_directory(
-        &mut self,
-        path_to_parent_directory: &PathBuf,
-        path_to_selected_directory: &mut PathBuf,
-    ) -> std::io::Result<()> {
-        let mut files_holder = BTreeMap::new();
-        if let Some(parent_dir) = self
-            .root
-            .get_mut_directory_by_path(path_to_parent_directory)
-        {
-            if let Some(files) = parent_dir.get_mut_files().take() {
-                for (key, value) in files {
-                    files_holder.insert(key, value);
-                }
-            }
-        }
-        let mut error_container = None;
-        if let Some(selected_dir) = self
-            .root
-            .get_mut_directory_by_path(&path_to_selected_directory)
-        {
-            if let Err(error) = selected_dir.get_files_recursive(&mut files_holder) {
-                error_container = Some(error);
-            }
-        }
-        if let Some(parent_dir) = self
-            .root
-            .get_mut_directory_by_path(&path_to_parent_directory)
-        {
-            for (key, value) in files_holder {
-                parent_dir.insert_file(key, value);
-            }
-        }
-
-        match error_container {
-            Some(error) => Err(error),
-            None => {
-                if let Some(parent_dir) = self
-                    .root
-                    .get_mut_directory_by_path(&path_to_parent_directory)
-                {
-                    if let Some(last) = path_to_selected_directory.iter().last() {
-                        parent_dir.remove_sub_directory(last);
-                        self.directories_selected.clear();
-                        return Ok(());
-                    } else {
-                        return Err(std::io::Error::new(
-                            ErrorKind::NotFound,
-                            "Not selected_directory found",
-                        ));
-                    }
-                }
-                return Err(std::io::Error::new(
-                    ErrorKind::NotFound,
-                    "Parent directory not found",
-                ));
-            }
-        }
-    }
-
     fn select_multiple_files_from_directories(
         &mut self,
         new_file_name: &str,
@@ -1707,97 +1369,6 @@ impl App {
             self.multiple_selection.file_name.clear();
             return Ok(());
         }
-    }
-
-    fn select_multiple_files_by_path(
-        &mut self,
-        file_path: &PathBuf,
-        file_index: usize,
-    ) -> std::io::Result<BTreeMap<OsString, File>> {
-        let path = app_util::convert_path_to_str(file_path)?;
-        if self.multiple_selection.file_name.is_empty() {
-            self.multiple_selection.file_name = String::from(path);
-            self.multiple_selection.file_index = file_index;
-            return Ok(BTreeMap::new());
-        } else {
-            let mut path = PathBuf::from(file_path);
-            path.pop();
-            if let Some(dir) = self.root.get_mut_directory_by_path(&path) {
-                if let Some(mut files) = dir.get_mut_files().take() {
-                    dir.insert_empty_files(); // For putting Some in to the dir files after .take()
-                    let mut in_file_boundaries = false;
-                    let initial_path = PathBuf::from(&self.multiple_selection.file_name);
-                    let mut files_selected = BTreeMap::new();
-                    let mut files_unselected = BTreeMap::new();
-
-                    if self.multiple_selection.file_index > file_index {
-                        // Reverse for loop
-                        while let Some((key, value)) = files.pop_last() {
-                            if initial_path.ends_with(&key) {
-                                in_file_boundaries = true;
-                            }
-                            app_util::select_files_in_boundary(
-                                in_file_boundaries,
-                                &mut files_selected,
-                                &mut files_unselected,
-                                &key,
-                                value,
-                            );
-                            if file_path.ends_with(&key) {
-                                in_file_boundaries = false;
-                            }
-                        }
-                    } else {
-                        for (key, value) in files {
-                            if initial_path.ends_with(&key) {
-                                in_file_boundaries = true;
-                            }
-                            app_util::select_files_in_boundary(
-                                in_file_boundaries,
-                                &mut files_selected,
-                                &mut files_unselected,
-                                &key,
-                                value,
-                            );
-
-                            if file_path.ends_with(&key) {
-                                in_file_boundaries = false;
-                            }
-                        }
-                    }
-
-                    // Check for errors
-                    if let Err(error) = app_util::is_duplicate_files_in_files_selected(
-                        dir,
-                        &self.files_selected,
-                        &path,
-                    ) {
-                        for (key, value) in files_selected {
-                            dir.insert_file(key, value);
-                        }
-                        for (key, value) in files_unselected {
-                            dir.insert_file(key, value);
-                        }
-                        self.multiple_selection.file_name.clear();
-                        self.multiple_selection.file_index = 0;
-                        return Err(error);
-                    }
-                    // Place unselected files back to directory
-                    for (key, value) in files_unselected {
-                        dir.insert_file(key, value);
-                    }
-                    self.multiple_selection.file_name.clear();
-                    self.multiple_selection.file_index = 0;
-                    return Ok(files_selected);
-                }
-            }
-        }
-        self.multiple_selection.file_name.clear();
-        self.multiple_selection.file_index = 0;
-        Err(std::io::Error::new(
-            ErrorKind::InvalidInput,
-            "Invalid selection",
-        ))
     }
 
     fn insert_files_to_selected_dir(&mut self) -> std::io::Result<()> {
