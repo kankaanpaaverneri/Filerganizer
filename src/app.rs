@@ -439,6 +439,10 @@ impl App {
 
                     Err(error) => self.error = error.to_string(),
                 }
+                let mut path = PathBuf::from(&self.path);
+                path.push(&self.new_directory_name);
+
+                self.add_directories_recursive_to_directories_selected(&path);
 
                 Task::none()
             }
@@ -934,6 +938,17 @@ impl App {
         }
     }
 
+    fn add_directories_recursive_to_directories_selected(&mut self, path_to_directory: &PathBuf) {
+        if let Some(directory) = self.root.get_mut_directory_by_path(path_to_directory) {
+            self.directories_selected
+                .insert(PathBuf::from(path_to_directory));
+            let paths = directory.get_directory_paths_recursive(path_to_directory);
+            for key in paths {
+                self.directories_selected.insert(key);
+            }
+        }
+    }
+
     fn write_directories_from_path(&mut self, path: &PathBuf) -> std::io::Result<()> {
         let mut path_stack = PathBuf::from("/");
         for component in path.iter() {
@@ -1097,7 +1112,6 @@ impl App {
                 self.files_organized.clear();
                 return Err(error);
             }
-
             return Ok(());
         }
         Err(std::io::Error::new(

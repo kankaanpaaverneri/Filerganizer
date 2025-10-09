@@ -1,6 +1,6 @@
 use crate::file::File;
 use crate::metadata::Metadata;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, ReadDir};
 use std::io::ErrorKind;
@@ -173,6 +173,26 @@ impl Directory {
             }
         }
         Ok(())
+    }
+
+    pub fn get_directory_paths_recursive(
+        &mut self,
+        path_to_this_directory: &PathBuf,
+    ) -> HashSet<PathBuf> {
+        let mut path_stack = PathBuf::from(path_to_this_directory);
+        let mut paths = HashSet::new();
+        if let Some(directories) = &mut self.directories {
+            for (key, value) in directories {
+                path_stack.push(key);
+                paths.insert(PathBuf::from(&path_stack));
+                let new_paths = value.get_directory_paths_recursive(&path_stack);
+                for key in new_paths {
+                    paths.insert(key);
+                }
+                path_stack.pop();
+            }
+        }
+        paths
     }
 
     #[allow(dead_code)]

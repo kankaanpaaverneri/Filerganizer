@@ -760,7 +760,6 @@ impl Layout {
         }
     }
 
-    // For when all sub directories haven't been read
     fn insert_directory_content_as_dropdown<'a>(
         &'a self,
         current_directory: &'a Directory,
