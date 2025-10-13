@@ -186,8 +186,8 @@ impl Directory {
                 path_stack.push(key);
                 paths.insert(PathBuf::from(&path_stack));
                 let new_paths = value.get_directory_paths_recursive(&path_stack);
-                for key in new_paths {
-                    paths.insert(key);
+                for new_path in new_paths {
+                    paths.insert(new_path);
                 }
                 path_stack.pop();
             }

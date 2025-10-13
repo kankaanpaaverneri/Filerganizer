@@ -550,7 +550,13 @@ impl App {
             Message::InsertFilesToSelectedDirectory => {
                 if let Err(error) = self.insert_files_to_selected_dir() {
                     self.error = error.to_string();
+                    return Task::none();
                 }
+                let mut path = PathBuf::new();
+                if let Some(selected_directory_path) = self.directory_selected.clone() {
+                    path = selected_directory_path;
+                }
+                self.add_directories_recursive_to_directories_selected(&path);
                 Task::none()
             }
             Message::SwapFileNameComponents(index) => {
@@ -919,6 +925,22 @@ impl App {
         self.path = PathBuf::from(path);
     }
 
+    fn write_all_inner_directories_from_path(&mut self, path: &PathBuf) -> std::io::Result<()> {
+        self.write_directory_to_tree(path)?;
+        let root_copy = self.root.clone();
+        let selected_directory = root_copy.get_directory_by_path(path);
+        // Do some reading
+        let mut path_stack = PathBuf::from(path);
+        if let Some(directories) = selected_directory.get_directories() {
+            for key in directories.keys() {
+                path_stack.push(key);
+                self.write_all_inner_directories_from_path(&path_stack)?;
+                path_stack.pop();
+            }
+        }
+        Ok(())
+    }
+
     fn write_directory_to_tree(&mut self, path: &PathBuf) -> std::io::Result<()> {
         let mut new_dir = self.root.clone();
         match new_dir.get_mut_directory_by_path(&path) {
@@ -943,8 +965,8 @@ impl App {
             self.directories_selected
                 .insert(PathBuf::from(path_to_directory));
             let paths = directory.get_directory_paths_recursive(path_to_directory);
-            for key in paths {
-                self.directories_selected.insert(key);
+            for path in paths {
+                self.directories_selected.insert(path);
             }
         }
     }
@@ -1387,6 +1409,9 @@ impl App {
 
     fn insert_files_to_selected_dir(&mut self) -> std::io::Result<()> {
         if let Some(selected_dir_path) = &self.directory_selected {
+            self.write_all_inner_directories_from_path(&selected_dir_path.clone())?;
+        }
+        if let Some(selected_dir_path) = &self.directory_selected {
             if let Some(selected_dir) = self.root.get_mut_directory_by_path(selected_dir_path) {
                 let (
                     checkbox_states,
@@ -1417,6 +1442,7 @@ impl App {
                         ),
                     )?;
                     self.files_selected.clear();
+                    // Now do not allow anymore files to be selected before commit is clicked
                     return Ok(());
                 }
             }
