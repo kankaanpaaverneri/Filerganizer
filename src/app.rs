@@ -198,7 +198,6 @@ pub enum Message {
     MoveInExternalDirectory(OsString),
     DropDownDirectory(PathBuf),
 
-    SelectPath,
     SelectDirectory(PathBuf),
     SelectFile(FileSelectedLocation),
     SelectMultipleFiles(usize, FileSelectedLocation),
@@ -245,9 +244,6 @@ impl App {
                 }
                 if is_submit {
                     self.directories_selected.insert(self.path.clone());
-                    if let Err(error) = self.switch_layout(&Layout::DirectoryOrganizingLayout) {
-                        self.error = error.to_string();
-                    }
                 }
                 Task::none()
             }
@@ -261,6 +257,7 @@ impl App {
                 if let Err(error) = self.select_drop_down_directory(&path_to_selected_directory) {
                     self.error = error.to_string();
                 }
+                self.directory_selected = None;
                 Task::none()
             }
             Message::SwitchDirectoryView(directory_view) => match directory_view {
@@ -275,16 +272,6 @@ impl App {
                         self.directory_view = directory_view;
                     }
                     Task::none()
-                }
-            },
-            Message::SelectPath => match self.switch_layout(&Layout::DirectoryOrganizingLayout) {
-                Ok(_) => {
-                    self.directories_selected.insert(self.path.clone());
-                    Task::none()
-                }
-                Err(error) => {
-                    self.error = error.to_string();
-                    return Task::none();
                 }
             },
 
@@ -557,6 +544,7 @@ impl App {
                     path = selected_directory_path;
                 }
                 self.add_directories_recursive_to_directories_selected(&path);
+                self.directory_selected = None;
                 Task::none()
             }
             Message::SwapFileNameComponents(index) => {
@@ -741,10 +729,6 @@ impl App {
             Layout::Main => {
                 self.init_app_data();
                 self.layout = Layout::Main;
-                Ok(())
-            }
-            Layout::DirectoryOrganizingLayout => {
-                self.layout = Layout::DirectoryOrganizingLayout;
                 Ok(())
             }
         }
@@ -1442,7 +1426,6 @@ impl App {
                         ),
                     )?;
                     self.files_selected.clear();
-                    // Now do not allow anymore files to be selected before commit is clicked
                     return Ok(());
                 }
             }

@@ -130,7 +130,6 @@ pub enum DirectoryView {
 pub enum Layout {
     Main,
     DirectorySelectionLayout,
-    DirectoryOrganizingLayout,
 }
 
 #[derive(Debug, Clone)]
@@ -186,31 +185,20 @@ impl Layout {
             );
             let mut header_column_row = Row::new();
             main_row = main_row.push(self.display_directory_contents(app).spacing(5));
-            if let Layout::DirectoryOrganizingLayout = self {
-                header_column_row = header_column_row.push(self.insert_search_bar(app, path));
-                header_column_row = header_column_row
-                    .push(self.insert_directory_view_buttons(app))
-                    .spacing(5);
-                if !app.get_files_organized().is_empty() {
-                    header_column_row =
-                        header_column_row.push(button("Commit").on_press(Message::Commit))
-                }
+            if !app.get_files_selected().is_empty() {
                 main_row = main_row.push(
                     scrollable(column![self.insert_files_selected(app),].padding(10))
                         .width(FillPortion(2))
                         .spacing(5),
                 );
             }
-            if let Layout::DirectorySelectionLayout = self {
-                header_column_row = header_column_row.push(self.insert_search_bar(app, path));
-                header_column_row = header_column_row
-                    .push(self.insert_directory_view_buttons(app))
-                    .spacing(5);
-                header_column_row = header_column_row.push(
-                    button("Show Directory rule options")
-                        .style(directory_button_style)
-                        .on_press(Message::SelectPath),
-                );
+            header_column_row = header_column_row.push(self.insert_search_bar(app, path));
+            header_column_row = header_column_row
+                .push(self.insert_directory_view_buttons(app))
+                .spacing(5);
+            if !app.get_files_organized().is_empty() {
+                header_column_row =
+                    header_column_row.push(button("Commit").on_press(Message::Commit));
             }
             header_column = header_column.push(header_column_row);
             if let Some(directory_path) = app.get_directory_selected() {
@@ -681,19 +669,23 @@ impl Layout {
                 path_stack.push(key);
                 if let Some(metadata) = file.get_metadata() {
                     if let Some(origin_path) = metadata.get_origin_path() {
-                        column = column.push(
-                            mouse_area(button(file_name).style(file_button_style).on_press(
-                                Message::SelectFile(FileSelectedLocation::FromFilesSelected(
-                                    origin_path.to_owned(),
-                                )),
-                            ))
-                            .on_right_press(
-                                Message::SelectMultipleFiles(
-                                    i,
-                                    FileSelectedLocation::FromFilesSelected(origin_path),
+                        if app.get_files_organized().is_empty() {
+                            column = column.push(
+                                mouse_area(button(file_name).style(file_button_style).on_press(
+                                    Message::SelectFile(FileSelectedLocation::FromFilesSelected(
+                                        origin_path.to_owned(),
+                                    )),
+                                ))
+                                .on_right_press(
+                                    Message::SelectMultipleFiles(
+                                        i,
+                                        FileSelectedLocation::FromFilesSelected(origin_path),
+                                    ),
                                 ),
-                            ),
-                        );
+                            );
+                        } else {
+                            column = column.push(button(file_name).style(file_button_style))
+                        }
                     }
                 }
                 path_stack.pop();
@@ -755,6 +747,7 @@ impl Layout {
                     root_dir,
                     &mut path_iter,
                     &mut path_stack,
+                    app
                 ))];
             }
         }
@@ -765,6 +758,7 @@ impl Layout {
         current_directory: &'a Directory,
         full_path_iter: &mut Iter<'_>,
         path_stack: &mut PathBuf,
+        app: &'a App,
     ) -> Column<'a, Message> {
         let mut column = Column::new();
         if let Some(next) = full_path_iter.next() {
@@ -784,11 +778,12 @@ impl Layout {
                                 selected,
                                 full_path_iter,
                                 path_stack,
+                                app,
                             );
                             new_column = new_column.padding(10);
                             new_column = new_column.spacing(10);
                             new_column =
-                                self.insert_drop_down_files(path_stack, selected, new_column);
+                                self.insert_drop_down_files(path_stack, selected, new_column, app);
                             path_stack.pop();
                             column = column.push(new_column);
                         }
@@ -815,7 +810,8 @@ impl Layout {
         let root_directory = app.get_root_directory();
         let path = app.get_path();
         let mut path_stack = PathBuf::new();
-        let column = self.insert_directory_contents_as_list(root_directory, &path, &mut path_stack);
+        let column =
+            self.insert_directory_contents_as_list(root_directory, &path, &mut path_stack, app);
         column
     }
 
@@ -824,6 +820,7 @@ impl Layout {
         current_directory: &'a Directory,
         full_path: &PathBuf,
         path_stack: &mut PathBuf,
+        app: &App,
     ) -> Column<'a, Message> {
         let mut column = Column::new();
         let mut dir = current_directory;
@@ -884,20 +881,26 @@ impl Layout {
                             file_information.push_str(&formatted_size);
                         }
                     }
-                    column = column.push(
-                        mouse_area(
-                            button(text(file_information))
-                                .style(file_button_style)
-                                .width(FillPortion(2))
-                                .on_press(Message::SelectFile(
+                    if app.get_files_organized().is_empty() {
+                        column = column.push(
+                            mouse_area(
+                                button(text(file_information))
+                                    .style(file_button_style)
+                                    .width(FillPortion(2))
+                                    .on_press(Message::SelectFile(
+                                        FileSelectedLocation::FromDirectory(path_stack.to_owned()),
+                                    )),
+                            )
+                            .on_right_press(
+                                Message::SelectMultipleFiles(
+                                    i,
                                     FileSelectedLocation::FromDirectory(path_stack.to_owned()),
-                                )),
+                                ),
+                            ),
                         )
-                        .on_right_press(Message::SelectMultipleFiles(
-                            i,
-                            FileSelectedLocation::FromDirectory(path_stack.to_owned()),
-                        )),
-                    )
+                    } else {
+                        column = column.push(button(file_name).style(file_button_style));
+                    }
                 }
                 path_stack.pop();
             }
@@ -952,6 +955,7 @@ impl Layout {
         current_path: &PathBuf,
         selected: &'a Directory,
         mut column: Column<'a, Message>,
+        app: &'a App,
     ) -> Column<'a, Message> {
         if let Some(files) = selected.get_files() {
             let mut iterator = 0;
@@ -959,20 +963,28 @@ impl Layout {
                 if let Some(file_name) = key.to_str() {
                     let mut path_to_file = PathBuf::from(current_path);
                     path_to_file.push(file_name);
-                    column = column.push(
-                        mouse_area(
-                            button(file_name)
-                                .style(file_button_style)
-                                .on_press(Message::SelectFile(FileSelectedLocation::FromDirectory(
-                                    path_to_file.to_owned(),
-                                )))
-                                .padding(5),
-                        )
-                        .on_right_press(Message::SelectMultipleFiles(
-                            iterator,
-                            FileSelectedLocation::FromDirectory(path_to_file.to_owned()),
-                        )),
-                    );
+                    if app.get_files_organized().is_empty() {
+                        column = column.push(
+                            mouse_area(
+                                button(file_name)
+                                    .style(file_button_style)
+                                    .on_press(Message::SelectFile(
+                                        FileSelectedLocation::FromDirectory(
+                                            path_to_file.to_owned(),
+                                        ),
+                                    ))
+                                    .padding(5),
+                            )
+                            .on_right_press(
+                                Message::SelectMultipleFiles(
+                                    iterator,
+                                    FileSelectedLocation::FromDirectory(path_to_file.to_owned()),
+                                ),
+                            ),
+                        );
+                    } else {
+                        column = column.push(button(file_name).style(file_button_style));
+                    }
                 }
                 iterator += 1;
             }
