@@ -68,14 +68,17 @@ impl Metadata {
         self.name.clone()
     }
 
+    #[allow(dead_code)]
     pub fn get_created(&self) -> Option<DateTime<Local>> {
         self.created
     }
 
+    #[allow(dead_code)]
     pub fn get_accessed(&self) -> Option<DateTime<Local>> {
         self.accessed
     }
 
+    #[allow(dead_code)]
     pub fn get_modified(&self) -> Option<DateTime<Local>> {
         self.modified
     }
@@ -84,6 +87,7 @@ impl Metadata {
         self.size
     }
 
+    #[allow(dead_code)]
     pub fn get_readonly(&self) -> bool {
         self.readonly
     }

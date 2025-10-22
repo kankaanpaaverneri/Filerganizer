@@ -782,8 +782,6 @@ impl Layout {
                             );
                             new_column = new_column.padding(10);
                             new_column = new_column.spacing(10);
-                            new_column =
-                                self.insert_drop_down_files(path_stack, selected, new_column, app);
                             path_stack.pop();
                             column = column.push(new_column);
                         }
@@ -802,6 +800,7 @@ impl Layout {
                     );
                 }
             }
+            column = self.insert_drop_down_files(path_stack, current_directory, column, app);
         }
         column
     }
@@ -957,9 +956,10 @@ impl Layout {
         mut column: Column<'a, Message>,
         app: &'a App,
     ) -> Column<'a, Message> {
+        
         if let Some(files) = selected.get_files() {
             let mut iterator = 0;
-            for (key, _value) in files.iter() {
+            for (key, _value) in files {
                 if let Some(file_name) = key.to_str() {
                     let mut path_to_file = PathBuf::from(current_path);
                     path_to_file.push(file_name);
@@ -992,6 +992,7 @@ impl Layout {
         column
     }
 
+    #[allow(dead_code)]
     fn insert_formatted_metadata<'a>(
         &self,
         name: &'a str,

@@ -824,12 +824,14 @@ impl App {
     fn move_in_external_directory(&mut self, external: &OsStr) -> std::io::Result<()> {
         match std::env::consts::OS {
             "windows" => {
+                self.directories_selected.clear();
                 self.update_path_prefix(external);
                 self.write_directory_to_tree(&PathBuf::from(&self.path))?;
                 self.update_path_input();
                 Ok(())
             }
             "macos" => {
+                self.directories_selected.clear();
                 self.path.clear();
                 self.path.push("/Volumes");
                 self.write_directory_to_tree(&PathBuf::from(&self.path))?;
