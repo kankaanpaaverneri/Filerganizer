@@ -45,7 +45,7 @@ pub struct App {
     replaceables: Vec<ReplacableSelection>,
     date_type_selected: Option<DateType>,
     filename_input: String,
-    order_of_filename_components: Vec<String>,
+    order_of_filename_components: Vec<FilenameComponents>,
     index_position: Option<IndexPosition>,
     files_organized: BTreeMap<OsString, File>,
     files_have_been_organized: bool,
@@ -56,7 +56,7 @@ pub struct SelectedDirectoryRules {
     checkbox_states: CheckboxStates,
     replaceables: Vec<ReplacableSelection>,
     date_type_selected: Option<DateType>,
-    order_of_filename_components: Vec<String>,
+    order_of_filename_components: Vec<FilenameComponents>,
     index_position: Option<IndexPosition>,
     filename_input: String,
 }
@@ -66,7 +66,7 @@ impl SelectedDirectoryRules {
         checkbox_states: CheckboxStates,
         replaceables: Vec<ReplacableSelection>,
         date_type_selected: Option<DateType>,
-        order_of_filename_components: Vec<String>,
+        order_of_filename_components: Vec<FilenameComponents>,
         index_position: Option<IndexPosition>,
         filename_input: String,
     ) -> Self {
@@ -92,7 +92,7 @@ impl SelectedDirectoryRules {
         &self.date_type_selected
     }
 
-    pub fn get_order_of_filename_components(&self) -> &Vec<String> {
+    pub fn get_order_of_filename_components(&self) -> &Vec<FilenameComponents> {
         &self.order_of_filename_components
     }
 
@@ -149,11 +149,23 @@ impl MultipleSelection {
     }
 }
 
-pub mod filename_components {
-    pub const DATE: &str = "Date";
-    pub const ORIGINAL_FILENAME: &str = "Original filename";
-    pub const DIRECTORY_NAME: &str = "Directory name";
-    pub const CUSTOM_FILE_NAME: &str = "Custom filename";
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilenameComponents {
+    Date,
+    OriginalFilename,
+    DirectoryName,
+    CustomFilename,
+}
+
+impl FilenameComponents {
+    pub fn convert_to_text(&self) -> &str {
+        match self {
+            FilenameComponents::CustomFilename => "Custom filename",
+            FilenameComponents::Date => "Date",
+            FilenameComponents::DirectoryName => "Directory name",
+            FilenameComponents::OriginalFilename => "Original_filename",
+        }
+    }
 }
 
 impl Default for App {
@@ -662,7 +674,7 @@ impl App {
         &self.filename_input
     }
 
-    pub fn get_order_of_filename_components(&self) -> &Vec<String> {
+    pub fn get_order_of_filename_components(&self) -> &Vec<FilenameComponents> {
         &self.order_of_filename_components
     }
 
@@ -794,8 +806,7 @@ impl App {
     }
 
     fn init_app_data(&mut self) {
-        self.order_of_filename_components =
-            vec![String::from(filename_components::ORIGINAL_FILENAME)];
+        self.order_of_filename_components = vec![FilenameComponents::OriginalFilename];
         self.directories_selected.clear();
         self.directory_selected = None;
         self.date_type_selected = None;
@@ -1190,41 +1201,35 @@ impl App {
                 self.checkbox_states.insert_directory_name_to_file_name = toggle;
                 if toggle {
                     self.order_of_filename_components
-                        .push(String::from(filename_components::DIRECTORY_NAME));
+                        .push(FilenameComponents::DirectoryName);
                 } else {
-                    self.filter_order_of_filename_components(String::from(
-                        filename_components::DIRECTORY_NAME,
-                    ));
+                    self.filter_order_of_filename_components(FilenameComponents::DirectoryName);
                 }
             }
             7 => {
                 self.checkbox_states.insert_date_to_file_name = toggle;
                 if toggle {
                     self.order_of_filename_components
-                        .push(String::from(filename_components::DATE));
+                        .push(FilenameComponents::Date);
                 } else {
-                    self.filter_order_of_filename_components(String::from(
-                        filename_components::DATE,
-                    ));
+                    self.filter_order_of_filename_components(FilenameComponents::Date);
                 }
             }
             8 => {
                 self.checkbox_states.remove_original_file_name = toggle;
                 if toggle {
-                    self.filter_order_of_filename_components(String::from(
-                        filename_components::ORIGINAL_FILENAME,
-                    ));
+                    self.filter_order_of_filename_components(FilenameComponents::OriginalFilename);
                     self.checkbox_states.add_custom_name = true;
                     if !self
                         .order_of_filename_components
-                        .contains(&String::from(filename_components::CUSTOM_FILE_NAME))
+                        .contains(&FilenameComponents::CustomFilename)
                     {
                         self.order_of_filename_components
-                            .push(String::from(filename_components::CUSTOM_FILE_NAME));
+                            .push(FilenameComponents::CustomFilename);
                     }
                 } else {
                     self.order_of_filename_components
-                        .push(String::from(filename_components::ORIGINAL_FILENAME));
+                        .push(FilenameComponents::OriginalFilename);
                 }
             }
             9 => {
@@ -1234,18 +1239,16 @@ impl App {
                 self.checkbox_states.add_custom_name = toggle;
                 if toggle {
                     self.order_of_filename_components
-                        .push(String::from(filename_components::CUSTOM_FILE_NAME));
+                        .push(FilenameComponents::CustomFilename);
                 } else {
-                    self.filter_order_of_filename_components(String::from(
-                        filename_components::CUSTOM_FILE_NAME,
-                    ));
+                    self.filter_order_of_filename_components(FilenameComponents::CustomFilename);
                 }
             }
             _ => {}
         }
     }
 
-    fn filter_order_of_filename_components(&mut self, filter_value: String) {
+    fn filter_order_of_filename_components(&mut self, filter_value: FilenameComponents) {
         self.order_of_filename_components = self
             .order_of_filename_components
             .iter()
@@ -1681,20 +1684,20 @@ mod tests {
     fn test_filter_order_of_file_name_components() {
         let mut app = App::default();
         app.order_of_filename_components
-            .push(String::from(filename_components::DATE));
+            .push(FilenameComponents::Date);
         app.order_of_filename_components
-            .push(String::from(filename_components::ORIGINAL_FILENAME));
+            .push(FilenameComponents::OriginalFilename);
         app.order_of_filename_components
-            .push(String::from(filename_components::DIRECTORY_NAME));
+            .push(FilenameComponents::DirectoryName);
         app.order_of_filename_components
-            .push(String::from(filename_components::CUSTOM_FILE_NAME));
-        app.filter_order_of_filename_components(String::from(filename_components::DATE));
+            .push(FilenameComponents::CustomFilename);
+        app.filter_order_of_filename_components(FilenameComponents::Date);
         assert_eq!(
             app.order_of_filename_components,
             vec![
-                String::from(filename_components::ORIGINAL_FILENAME),
-                String::from(filename_components::DIRECTORY_NAME),
-                String::from(filename_components::CUSTOM_FILE_NAME)
+                FilenameComponents::OriginalFilename,
+                FilenameComponents::DirectoryName,
+                FilenameComponents::CustomFilename
             ]
         )
     }

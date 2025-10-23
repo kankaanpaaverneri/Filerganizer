@@ -19,7 +19,7 @@ use iced::{
 use chrono::{DateTime, Local};
 
 use crate::{
-    app::{filename_components, App, Message, ReplacableSelection, SelectedDirectoryRules},
+    app::{App, FilenameComponents, Message, ReplacableSelection, SelectedDirectoryRules},
     directory::Directory,
     metadata::{DateType, Metadata},
     organize_files,
@@ -423,17 +423,17 @@ impl Layout {
             column = column.push(text("Order of filename components example"));
         }
         for (i, component) in order_of_filename_components.iter().enumerate() {
-            let example_component = match component.as_str() {
-                filename_components::DATE => {
+            let example_component = match component {
+                FilenameComponents::Date => {
                     let current_date: DateTime<Local> = Local::now();
                     let formatted = current_date.format("%Y%m%d");
                     formatted.to_string()
                 }
-                filename_components::ORIGINAL_FILENAME => {
+                FilenameComponents::OriginalFilename => {
                     let original_filename = String::from("Original Filename");
                     self.convert_text_by_checkbox_states(app, original_filename)
                 }
-                filename_components::DIRECTORY_NAME => {
+                FilenameComponents::DirectoryName => {
                     let mut directory_name = String::new();
                     let new_directory_name = app.get_new_directory_input();
                     if !app.get_new_directory_input().is_empty() {
@@ -443,7 +443,7 @@ impl Layout {
                     }
                     self.convert_text_by_checkbox_states(app, directory_name)
                 }
-                filename_components::CUSTOM_FILE_NAME => {
+                FilenameComponents::CustomFilename => {
                     let mut custom_name = String::from("Custom Name");
                     let filename_input = app.get_filename_input();
                     if !filename_input.is_empty() {
@@ -456,7 +456,6 @@ impl Layout {
                     }
                     custom_file_name
                 }
-                _ => String::new(),
             };
             if i > 0 {
                 row = row.push(button("swap").on_press(Message::SwapFileNameComponents(i)));
@@ -534,13 +533,13 @@ impl Layout {
 
     fn insert_order_of_filename_components_for_directory<'a>(
         &'a self,
-        order_of_filename_components: &'a Vec<String>,
+        order_of_filename_components: &'a Vec<FilenameComponents>,
     ) -> Column<'a, Message> {
         let mut column = Column::new();
         column = column.push(text("Order of filename components: "));
         let mut row = Row::new();
         for component in order_of_filename_components {
-            row = row.push(text(component));
+            row = row.push(text(component.convert_to_text()));
         }
         row = row.spacing(10);
         column = column.push(row);
@@ -780,8 +779,7 @@ impl Layout {
                                 path_stack,
                                 app,
                             );
-                            new_column = new_column.padding(10);
-                            new_column = new_column.spacing(10);
+                            new_column = new_column.padding(5);
                             path_stack.pop();
                             column = column.push(new_column);
                         }
@@ -943,7 +941,6 @@ impl Layout {
                     .style(directory_button_style)
                     .on_press(Message::SelectDirectory(PathBuf::from(&path_stack))),
             );
-            row = row.padding(5);
             column = column.push(row);
         }
         column
@@ -956,7 +953,6 @@ impl Layout {
         mut column: Column<'a, Message>,
         app: &'a App,
     ) -> Column<'a, Message> {
-        
         if let Some(files) = selected.get_files() {
             let mut iterator = 0;
             for (key, _value) in files {

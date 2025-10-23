@@ -1,4 +1,4 @@
-use crate::app::{filename_components, ReplacableSelection};
+use crate::app::{FilenameComponents, ReplacableSelection};
 use crate::app_util;
 use crate::directory::Directory;
 use crate::file::File;
@@ -16,7 +16,7 @@ pub struct OrganizingData<'a> {
     replaceables: &'a Vec<ReplacableSelection>,
     directory_name: &'a str,
     custom_file_name: &'a str,
-    file_name_component_order: &'a Vec<String>,
+    file_name_component_order: &'a Vec<FilenameComponents>,
     date_type: Option<DateType>,
     index_position: Option<IndexPosition>,
 }
@@ -28,7 +28,7 @@ impl<'a> OrganizingData<'a> {
         replaceables: &'a Vec<ReplacableSelection>,
         directory_name: &'a str,
         custom_file_name: &'a str,
-        file_name_component_order: &'a Vec<String>,
+        file_name_component_order: &'a Vec<FilenameComponents>,
         date_type: Option<DateType>,
         index_position: Option<IndexPosition>,
     ) -> Self {
@@ -355,7 +355,7 @@ pub struct SortData<'a> {
     replaceables: &'a Vec<ReplacableSelection>,
     new_directory_name: &'a str,
     custom_file_name: &'a str,
-    file_name_component_order: &'a Vec<String>,
+    file_name_component_order: &'a Vec<FilenameComponents>,
     date_type_selected: Option<DateType>,
     index_position: Option<IndexPosition>,
     rename: bool,
@@ -371,7 +371,7 @@ impl<'a> SortData<'a> {
         replaceables: &'a Vec<ReplacableSelection>,
         new_directory_name: &'a str,
         custom_file_name: &'a str,
-        file_name_component_order: &'a Vec<String>,
+        file_name_component_order: &'a Vec<FilenameComponents>,
         date_type_selected: Option<DateType>,
         index_position: Option<IndexPosition>,
         rename: bool,
@@ -483,7 +483,7 @@ pub struct RenameData<'a> {
     new_directory_name: &'a str,
     custom_file_name: &'a str,
     file_count: usize,
-    file_name_component_order: &'a Vec<String>,
+    file_name_component_order: &'a Vec<FilenameComponents>,
     file_name: &'a str,
     file: &'a File,
     date_type_selected: Option<DateType>,
@@ -498,7 +498,7 @@ impl<'a> RenameData<'a> {
         new_directory_name: &'a str,
         custom_file_name: &'a str,
         file_count: usize,
-        file_name_component_order: &'a Vec<String>,
+        file_name_component_order: &'a Vec<FilenameComponents>,
         file_name: &'a str,
         file: &'a File,
         date_type_selected: Option<DateType>,
@@ -520,7 +520,7 @@ impl<'a> RenameData<'a> {
     }
 }
 
-struct FilenameComponents {
+struct FilenameComponentString {
     date: String,
     directory_name: String,
     custom_name: String,
@@ -528,7 +528,7 @@ struct FilenameComponents {
     file_type: String,
 }
 
-impl FilenameComponents {
+impl FilenameComponentString {
     pub fn new() -> Self {
         Self {
             date: String::new(),
@@ -541,13 +541,13 @@ impl FilenameComponents {
 }
 
 pub fn rename_file_name(rename_data: RenameData) {
-    let FilenameComponents {
+    let FilenameComponentString {
         mut date,
         mut directory_name,
         mut custom_name,
         mut original_name,
         mut file_type,
-    } = FilenameComponents::new();
+    } = FilenameComponentString::new();
     if rename_data
         .checkbox_states
         .insert_directory_name_to_file_name
@@ -631,27 +631,27 @@ pub fn rename_file_name(rename_data: RenameData) {
             original_name = replace_non_ascii(original_name);
         }
     }
-    if let Some(last) = rename_data.file_name_component_order.last() {
-        for component in rename_data.file_name_component_order {
-            if *component == String::from(filename_components::DATE) {
-                rename_data.renamed_file_name.push_str(date.as_str());
-            } else if *component == String::from(filename_components::CUSTOM_FILE_NAME) {
-                rename_data.renamed_file_name.push_str(custom_name.as_str());
-            } else if *component == String::from(filename_components::DIRECTORY_NAME) {
-                rename_data
-                    .renamed_file_name
-                    .push_str(directory_name.as_str());
-            } else if *component == String::from(filename_components::ORIGINAL_FILENAME) {
-                rename_data
-                    .renamed_file_name
-                    .push_str(original_name.as_str());
+
+    let size = rename_data.file_name_component_order.len();
+
+    for (i, component) in rename_data.file_name_component_order.iter().enumerate() {
+        match component {
+            FilenameComponents::Date => rename_data.renamed_file_name.push_str(date.as_str()),
+            FilenameComponents::DirectoryName => rename_data
+                .renamed_file_name
+                .push_str(directory_name.as_str()),
+            FilenameComponents::CustomFilename => {
+                rename_data.renamed_file_name.push_str(custom_name.as_str())
             }
-            if component != last {
-                rename_data.renamed_file_name.push('_');
-            }
+            FilenameComponents::OriginalFilename => rename_data
+                .renamed_file_name
+                .push_str(original_name.as_str()),
         }
-        rename_data.renamed_file_name.push_str(file_type.as_str());
+        if i < (size - 1) {
+            rename_data.renamed_file_name.push('_');
+        }
     }
+    rename_data.renamed_file_name.push_str(file_type.as_str());
 }
 
 fn replace_characters_by_rules(

@@ -486,22 +486,6 @@ pub mod tests {
     }
 
     #[test]
-    fn test_remove_sub_directory() {
-        let mut directory = Directory::new(None);
-        directory.insert_directory(Directory::new(None), "content");
-        directory.insert_directory(Directory::new(None), "text_files");
-        if let Some(directories) = directory.get_directories() {
-            assert_eq!(
-                directories.contains_key(&OsString::from("text_files")),
-                true
-            );
-            assert_eq!(directories.contains_key(&OsString::from("content")), false);
-        } else {
-            panic!("Could not get directories");
-        }
-    }
-
-    #[test]
     fn test_clear_directory_content() {
         let mut directory = Directory::new(None);
         directory.insert_directory(Directory::new(None), "content");

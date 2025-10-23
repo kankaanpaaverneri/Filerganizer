@@ -1,4 +1,4 @@
-use crate::app::{filename_components, ReplacableSelection};
+use crate::app::{FilenameComponents, ReplacableSelection};
 use crate::app_util;
 use crate::layouts::{IndexPosition, ReplaceWith, Replaceable};
 use crate::{layouts::CheckboxStates, metadata::DateType};
@@ -24,7 +24,7 @@ pub fn write_created_directory_to_save_file(
     replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
     index_position: Option<IndexPosition>,
-    order_of_filename_components: &Vec<String>,
+    order_of_filename_components: &Vec<FilenameComponents>,
     custom_filename: &str,
 ) -> std::io::Result<()> {
     match std::fs::File::options()
@@ -76,7 +76,7 @@ pub fn read_directory_rules_from_file(
     Option<DateType>,
     Option<IndexPosition>,
     Vec<ReplacableSelection>,
-    Vec<String>,
+    Vec<FilenameComponents>,
     String,
 )> {
     match std::fs::File::options()
@@ -212,18 +212,18 @@ fn parse_date_type(list_of_rules: &Vec<&str>) -> Option<DateType> {
     };
 }
 
-fn parse_filename_components(list_of_rules: &Vec<&str>) -> Vec<String> {
+fn parse_filename_components(list_of_rules: &Vec<&str>) -> Vec<FilenameComponents> {
     let mut order_of_filename_components = Vec::new();
     for rule in list_of_rules {
         let component = match *rule {
-            "directory_name" => filename_components::DIRECTORY_NAME,
-            "date" => filename_components::DATE,
-            "custom_file_name" => filename_components::CUSTOM_FILE_NAME,
-            "original_filename" => filename_components::ORIGINAL_FILENAME,
-            _ => "",
+            "directory_name" => Some(FilenameComponents::DirectoryName),
+            "date" => Some(FilenameComponents::Date),
+            "custom_file_name" => Some(FilenameComponents::CustomFilename),
+            "original_filename" => Some(FilenameComponents::OriginalFilename),
+            _ => None,
         };
-        if !component.is_empty() {
-            order_of_filename_components.push(String::from(component));
+        if let Some(component) = component {
+            order_of_filename_components.push(component);
         }
     }
     order_of_filename_components
@@ -271,7 +271,7 @@ fn write_directory_data_to_string(
     replaceables: &Vec<ReplacableSelection>,
     date_type: Option<DateType>,
     index_position: Option<IndexPosition>,
-    order_of_filename_components: &Vec<String>,
+    order_of_filename_components: &Vec<FilenameComponents>,
     custom_filename: &str,
 ) {
     file_content.push_str(dir_path);
@@ -302,7 +302,7 @@ fn write_directory_data_to_string(
     write_index_position(file_content, index_position);
     write_replace_rules_to_file(file_content, replaceables);
     write_order_of_filename_components(file_content, order_of_filename_components);
-    if order_of_filename_components.contains(&String::from(filename_components::CUSTOM_FILE_NAME)) {
+    if order_of_filename_components.contains(&FilenameComponents::CustomFilename) {
         file_content.push(',');
         file_content.push_str(custom_filename);
     }
@@ -344,15 +344,14 @@ fn write_replace_rules_to_file(file_content: &mut String, replaceables: &Vec<Rep
 
 fn write_order_of_filename_components(
     file_content: &mut String,
-    order_of_filename_components: &Vec<String>,
+    order_of_filename_components: &Vec<FilenameComponents>,
 ) {
     for component in order_of_filename_components {
-        match component.as_str() {
-            filename_components::DATE => file_content.push_str(",date"),
-            filename_components::ORIGINAL_FILENAME => file_content.push_str(",original_filename"),
-            filename_components::DIRECTORY_NAME => file_content.push_str(",directory_name"),
-            filename_components::CUSTOM_FILE_NAME => file_content.push_str(",custom_file_name"),
-            _ => {}
+        match component {
+            FilenameComponents::Date => file_content.push_str(",date"),
+            FilenameComponents::OriginalFilename => file_content.push_str(",original_filename"),
+            FilenameComponents::DirectoryName => file_content.push_str(",directory_name"),
+            FilenameComponents::CustomFilename => file_content.push_str(",custom_file_name"),
         }
     }
 }
