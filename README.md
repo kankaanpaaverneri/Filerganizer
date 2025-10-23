@@ -17,7 +17,7 @@ Program is still in testing so use with caution.
 
 ![No image available](https://github.com/kankaanpaaverneri/Filerganizer/blob/main/filerganizer_main.jpg)
 ![No image available](https://github.com/kankaanpaaverneri/Filerganizer/blob/main/filerganizer_directory_selection_layout.jpg)
-![No image available](https://github.com/kankaanpaaverneri/Filerganizer/blob/main/filerganizer_organizing_layout.jpg)
+![No image available](https://github.com/kankaanpaaverneri/Filerganizer/blob/main/filerganizer_files_selected_layout.jpg)
 
 # Build instructions
 - [Install Rust](https://www.rust-lang.org/tools/install).
