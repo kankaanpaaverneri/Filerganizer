@@ -964,11 +964,13 @@ impl App {
                 continue;
             }
             path_stack.push(OsString::from(component));
-            if let Err(error) = self.write_directory_to_tree(&path_stack) {
-                if path_stack.pop() {
-                    self.path = path_stack;
+            if !self.directories_selected.contains(&path_stack) {
+                if let Err(error) = self.write_directory_to_tree(&path_stack) {
+                    if path_stack.pop() {
+                        self.path = path_stack;
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
         }
         self.path = path.clone();
